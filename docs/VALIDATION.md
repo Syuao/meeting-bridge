@@ -9,6 +9,6 @@ The app is under active development. Website editor changes and service availabi
 - DeepSeek fallback translation passed a separate synthetic API test.
 - The updated 0.6.1 panel was observed loaded in Chrome. Earlier user tests confirmed automatic clipboard copying and draft appending in ChatGPT.
 
-The publication preparation successfully built the capture helper from an export of tracked source, ran all 67 Node tests, and installed the cloud-only route into disposable directories without bundled models or local ASR binaries. CI does not need API keys and does not record audio. Optional local Whisper ASR is built separately; its model is downloaded with checksum verification.
+The publication preparation successfully built the capture helper from an export of tracked source, ran all 67 Node tests, and installed the cloud-only route into disposable directories without bundled models or local ASR binaries. CI does not need API keys and does not record audio. The optional local Whisper worker was also built with the committed CMake configuration against the pinned upstream source; its installed executable links only system libraries/frameworks. The model download script verified an existing Whisper Base file against the pinned checksum; a fresh model download was not repeated.
 
 Local raw test artifacts are intentionally excluded because they can contain environment details. No personal transcripts, real API keys or interview documents are included in the repository.
