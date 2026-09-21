@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Meeting Bridge · 会议提问助手",
+  "version": "0.6.1",
+  "description": "实时转写和中文翻译，划选英文追加到 ChatGPT、DeepSeek 或千问网页草稿。",
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "tabs",
+    "sidePanel",
+    "clipboardWrite",
+    "unlimitedStorage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.deepseek.com/*",
+    "https://www.qianwen.com/*",
+    "https://qianwen.com/*",
+    "https://chat.qwen.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "打开 Meeting Bridge"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "options_page": "panel.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.deepseek.com/*",
+        "https://www.qianwen.com/*",
+        "https://qianwen.com/*",
+        "https://chat.qwen.ai/*"
+      ],
+      "js": [
+        "sites.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAybNcv/kqjkIapQMa9yyS7B3ck/hMXqKpkqDdET/nW1pE12cieaN90Lgz0j82raiHrTmCIGs0sCvpxj3jWJU/LoWKEhHGN39+dn3TdWYqUYpUFDhvWJZWEgkG8Aa55nqd5rOb+UHa3IxPuWgM+K1eYOhs32ZH3zWsxTJ2RxUZWVewJMY6lx4OVEw2zGR8LgSRt4Ttlj2BTkAnkIdo3FjDZOsIIf68IIMODgy9sfEVWB/I3p4gcsMlHeOpNF+Emy3+wnuWgi1x/r1lBBgFA+Vs363OCOuo8wx4Mu9SrWVZo2fRtz17FUX8dNeW2wZ3l7Ug1FCU4qzVsi8COM1vY5kwdQIDAQAB"
+}

@@ -1,0 +1,26 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: python3 scripts/check_repository.py
+      - run: python3 scripts/build_capture.py
+      - run: npm test
+      # Use disposable directories, never the normal Chrome profile or runtime.
+      - name: Verify source-only installation
+        shell: bash
+        run: |
+          test_root=$(mktemp -d)
+          python3 install.py --runtime-dir "$test_root/runtime" --native-host-dir "$test_root/native-hosts"
+          test -f "$test_root/native-hosts/local.meetingbridge.json"
+          rm -rf "$test_root"

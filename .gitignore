@@ -1,0 +1,36 @@
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*key*.json
+aliyun-asr.json
+*.pem
+*.p12
+*.pfx
+*.key
+# Generated dependencies, binaries and downloaded speech models
+node_modules/
+/Meeting Bridge Audio.app/
+/bin/
+/models/
+/.build/
+/dist/
+# Per-machine launch script (install.py regenerates it)
+/host/launch-host
+# Local diagnostics and recordings
+*.log
+*.jsonl
+/测试结果*.json
+/权限修复验证.json
+/录音/
+*.f32
+*.pcm
+*.wav
+*.mp3
+*.m4a
+# OS/editor files
+.DS_Store
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/

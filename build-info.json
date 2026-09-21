@@ -1,0 +1,52 @@
+{
+  "version": "0.6.1",
+  "model": {
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+    "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    "verified_against": "Hugging Face LFS metadata"
+  },
+  "whisper_cpp_commit": "da54572229bcf64ba367d96c7ef15770376c4280",
+  "asr_smoke": {
+    "audio_seconds": 10,
+    "inference_ms": 1134,
+    "language": "en",
+    "result": "correct English question",
+    "note": "Historical local Whisper test; not a measurement of cloud streaming."
+  },
+  "extensionVersion": "0.6.1",
+  "finalValidation": "docs/VALIDATION.md",
+  "questionProvider": "DeepSeek",
+  "questionModel": "deepseek-flash",
+  "asrProvider": "Alibaba Cloud Model Studio",
+  "asrModel": "qwen-audio-3.0-asr-flash-streaming",
+  "defaultQuestionMode": "manual",
+  "captureBackground": true,
+  "nativeCaptureVersion": "0.4.1",
+  "defaultFontSize": 14,
+  "fontRange": [
+    10,
+    32
+  ],
+  "defaultConfirmSelection": false,
+  "selectionAutoCopy": true,
+  "composerAutoReconnect": true,
+  "hostVersion": "0.6.0",
+  "translationProvider": "Alibaba Cloud Qwen-MT",
+  "translationModel": "qwen-mt-flash",
+  "translationIntervalMs": 450,
+  "translationInterim": true,
+  "defaultTranslationEnabled": true,
+  "translationFallback": "deepseek-flash",
+  "translationInterimIntervalMs": 2200,
+  "translationStream": true,
+  "translationAutoRecovery": true,
+  "websites": [
+    "chatgpt.com",
+    "chat.deepseek.com",
+    "qianwen.com",
+    "www.qianwen.com",
+    "chat.qwen.ai"
+  ],
+  "selectionTrayOnlyWhenConfirming": true,
+  "selectionResultInline": true
+}

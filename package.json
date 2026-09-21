@@ -1,0 +1,22 @@
+{
+  "name": "meeting-bridge-local",
+  "version": "0.6.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check:repo": "python3 scripts/check_repository.py"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  },
+  "license": "MIT",
+  "description": "macOS system-audio transcription, streaming Chinese translation and browser conversation drafts",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Syuao/meeting-bridge.git"
+  }
+}

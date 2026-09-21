@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.20)
+project(meeting_bridge_local_asr LANGUAGES C CXX)
+include(FetchContent)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
+FetchContent_Declare(whisper
+  GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git
+  GIT_TAG da54572229bcf64ba367d96c7ef15770376c4280)
+FetchContent_MakeAvailable(whisper)
+add_executable(meeting-asr asr.cpp)
+target_compile_features(meeting-asr PRIVATE cxx_std_17)
+target_include_directories(meeting-asr PRIVATE ${whisper_SOURCE_DIR}/examples)
+target_link_libraries(meeting-asr PRIVATE whisper)
+install(TARGETS meeting-asr RUNTIME DESTINATION bin COMPONENT meeting-bridge)
