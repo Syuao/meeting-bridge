@@ -21,7 +21,9 @@ if output == installed.resolve():
 output.parent.mkdir(parents=True, exist_ok=True)
 cache = root / '.build/swift-cache'
 cache.mkdir(parents=True, exist_ok=True)
-with tempfile.TemporaryDirectory(prefix='meetingbridge-build-', dir=output.parent) as temporary:
+# Build/sign outside cloud-synced Documents directories: file providers can add
+# Finder metadata between xattr cleanup and signing, invalidating the bundle.
+with tempfile.TemporaryDirectory(prefix='meetingbridge-build-') as temporary:
     app = Path(temporary) / 'Meeting Bridge Audio.app'
     binary = app / 'Contents/MacOS/MeetingBridgeAudio'
     binary.parent.mkdir(parents=True)

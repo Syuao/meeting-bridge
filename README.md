@@ -27,10 +27,16 @@ flowchart LR
 
 ## 安装：推荐的云转写路线
 
+### 下载 Mac 预编译包（无需开发环境）
+
+在 [GitHub Releases](https://github.com/Syuao/meeting-bridge/releases/latest) 下载 `MeetingBridge-0.6.1-macOS-arm64.zip`，解压后运行 `Install.command`。包内自带 Node.js、桥接依赖和编译好的声音采集程序。然后在 Chrome 的 `chrome://extensions` 开启开发者模式，加载 `~/Library/Application Support/MeetingBridge/extension`。
+
+仅适用于 Apple Silicon Mac、macOS 13+。需要自己的百炼 API 密钥，API 另行计费。此体验包免费，无自动更新；本机采集程序使用临时签名，未获得 Apple 公证，首次打开可能需要手动确认。详细步骤见 [安装包使用说明](distribution/README.md)。仅下载 `extension.zip` 不包含 Mac 采集程序，不能独立完成转写。
+
 ### 环境
 
 - macOS 13 或更新版本；开发与本机验证使用 Apple Silicon / macOS 15，Intel Mac 尚未实测。
-- Google Chrome、Node.js 22+、npm、Python 3、Git。
+- Google Chrome。以下源码安装另需 Node.js 22+、npm、Python 3、Git。
 - Xcode Command Line Tools：终端运行 `xcode-select --install`，按系统提示安装。
 - 阿里云百炼 API 密钥。语音与翻译独立按用量计费，网页聊天账户不会自动提供 API 额度。
 
@@ -92,6 +98,7 @@ python3 scripts/check_repository.py
 - GitHub Actions 在 macOS 上构建 helper、运行测试，并安装到临时目录。
 - 仓库检查脚本检查 Git 索引，阻止常见密钥、本机绝对路径、大文件与二进制误提交；提交前仍应查看 `git diff --cached`。
 - [验证说明](docs/VALIDATION.md) 记录覆盖范围与实际限制。
+- Apple Silicon Release 构建：`python3 scripts/build_release.py`。输出在被 Git 忽略的 `dist/`，通过明确文件清单打包，不读取已安装程序的密钥和历史；同时生成 SHA-256 校验文件。
 
 | 目录 | 用途 |
 | --- | --- |
