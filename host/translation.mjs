@@ -101,7 +101,7 @@ export class Translator {
         this.failures++;
         const retryable=e.retryable!==false,backoff=retryable?this.retryDelays[Math.min(this.failures-1,this.retryDelays.length-1)]:0;
         this.paused=!retryable;this.retryAt=retryable?Date.now()+backoff:0;
-        this.status(retryable?'retrying':'error',e.message+(retryable?` ${Math.ceil(backoff/1000)} 秒后自动重试；原文仍可划选。`:' 请检查密钥、余额或地域后点击重试。'),undefined,{errorCode:e.code||'response_format',httpStatus:e.httpStatus||0,attempt:this.failures,backoffMs:backoff});
+        this.status(retryable?'retrying':'error',e.message+(retryable?` ${Math.ceil(backoff/1000)} 秒后自动重试；原文仍可划选。`:' '+(e.recoveryHint||'请检查密钥、余额或地域后点击重试。')),undefined,{errorCode:e.code||'response_format',httpStatus:e.httpStatus||0,attempt:this.failures,backoffMs:backoff});
       }
     }finally{if(this.active===active)this.active=null;this.schedule();}
   }

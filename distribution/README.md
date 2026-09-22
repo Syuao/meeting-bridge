@@ -1,4 +1,4 @@
-# Meeting Bridge 0.6.1 · Mac 安装包
+# Meeting Bridge 0.6.2 · Mac 安装包
 
 支持 Apple Silicon（M1/M2/M3/M4 等）Mac，macOS 13+，Google Chrome。Intel Mac 请使用仓库中的源码安装方式。
 

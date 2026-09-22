@@ -1,10 +1,10 @@
-// Called from the completed selection gesture, before focusing the ChatGPT page.
+// Copy during the gesture, while the panel owns focus. Do not wait for an async
+// denial before using the synchronous path: activation/focus can be gone by then.
 export async function writeClipboard(text){
-  try{await navigator.clipboard.writeText(text);return true;}catch{}
-  // A copy event preserves the visible selection; no hidden textarea steals focus.
-  let copied=false;
-  const handle=event=>{if(!event.clipboardData)return;event.clipboardData.setData('text/plain',text);event.preventDefault();copied=true;};
+  let handled=false,accepted=false;
+  const handle=event=>{if(!event.clipboardData)return;event.clipboardData.setData('text/plain',text);event.preventDefault();handled=true;};
   document.addEventListener('copy',handle);
-  try{document.execCommand('copy');}catch{}finally{document.removeEventListener('copy',handle);}
-  return copied;
+  try{accepted=document.execCommand('copy')===true;}catch{}finally{document.removeEventListener('copy',handle);}
+  if(handled&&accepted)return true;
+  try{await navigator.clipboard.writeText(text);return true;}catch{return false;}
 }

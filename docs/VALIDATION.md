@@ -2,6 +2,14 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.6.2
+
+- All 71 Node tests passed, including HTTP transport classification/redaction of Alibaba's `Arrearage` error and synchronous clipboard rejection/fallback handling.
+- All 18 local browser panel checks passed. New scenarios cover starting a selection in paragraph padding, a failed copy followed by copy-only retry, a new selection during an unresolved draft fill, and a native range update after pointer release. Clipboard and draft delivery were mocked; these checks do not verify a user's operating-system clipboard or authenticated website.
+- API error handling exposes only recognized error codes and predefined messages, never raw provider responses or quoted transcript text. Billing failures pause until an explicit retry; transient failures retain automatic backoff.
+
+## Earlier versions
+
 - 67 Node tests passed on the development Mac before publication preparation: transcription state, translation streaming/retries, draft append/deduplication, binding identity, clipboard, history and capture installation identity.
 - Version 0.6.1 passed 14 existing browser panel interaction checks using local fixtures. No real meeting audio, API calls or website messages were used by those fixture checks.
 - Version 0.6.0 passed four local browser editor fixtures for ChatGPT, DeepSeek, Qianwen and Qwen. This is not an authenticated end-to-end guarantee for every website version.

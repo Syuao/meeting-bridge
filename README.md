@@ -29,7 +29,7 @@ flowchart LR
 
 ### 下载 Mac 预编译包（无需开发环境）
 
-在 [GitHub Releases](https://github.com/Syuao/meeting-bridge/releases/latest) 下载 `MeetingBridge-0.6.1-macOS-arm64.zip`，解压后运行 `Install.command`。包内自带 Node.js、桥接依赖和编译好的声音采集程序。然后在 Chrome 的 `chrome://extensions` 开启开发者模式，加载 `~/Library/Application Support/MeetingBridge/extension`。
+在 [GitHub Releases](https://github.com/Syuao/meeting-bridge/releases/latest) 下载 `MeetingBridge-0.6.2-macOS-arm64.zip`，解压后运行 `Install.command`。包内自带 Node.js、桥接依赖和编译好的声音采集程序。然后在 Chrome 的 `chrome://extensions` 开启开发者模式，加载 `~/Library/Application Support/MeetingBridge/extension`。
 
 仅适用于 Apple Silicon Mac、macOS 13+。需要自己的百炼 API 密钥，API 另行计费。此体验包免费，无自动更新；本机采集程序使用临时签名，未获得 Apple 公证，首次打开可能需要手动确认。详细步骤见 [安装包使用说明](distribution/README.md)。仅下载 `extension.zip` 不包含 Mac 采集程序，不能独立完成转写。
 

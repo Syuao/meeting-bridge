@@ -11,15 +11,17 @@ let setupInitialized=false,asrSetupInitialized=false,toastTimer,fontTimer,pendin
 let selectionId=null,selectionRange=null,selectionBusy=false,draggingText=false,gestureStarted=false,autoTimer=null;
 let followLive=true,resumeFollowing=false,pausedCount=0;
 let selectionCopy=null,lastSelectionId=null,selectionNotice='',selectionResultStatus=null;
+let copyGestureUntil=0;
+const fillingSelections=new Set();
 const transcriptNodes=new Map();
 function toast(text){$('toast').textContent=text;$('toast').style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.display='none',2600);}
 async function copy(text){toast(await writeClipboard(text)?'已复制':'复制失败，请选中文字后按 ⌘C');}
 function copyCurrentSelection(){
   const text=$('selectedText').value.trim(),id=selectionId;
   if(!text)return Promise.resolve(false);
-  if(selectionCopy?.id===id&&selectionCopy.text===text)return selectionCopy.promise;
+  if(selectionCopy?.id===id&&selectionCopy.text===text&&selectionCopy.ok!==false)return selectionCopy.promise;
   const record={id,text};selectionCopy=record;
-  record.promise=writeClipboard(text).then(ok=>{record.ok=ok;if(selectionId===id)selectionControls();return ok;});
+  record.promise=writeClipboard(text).then(ok=>{record.ok=ok;if(selectionCopy===record){$('retryCopy').hidden=ok;if(selectionId===id)selectionControls();}return ok;});
   return record.promise;
 }
 function button(label,fn){const b=document.createElement('button');b.textContent=label;b.onclick=()=>Promise.resolve(fn()).catch(e=>toast(e.message));return b;}
@@ -56,12 +58,13 @@ function stageSelection(text,range){
   if(text.length>10000){cancelAuto();toast('选句过长，请分成几段加入');return false;}
   if(!selectionId||$('selectedText').value!==text){
     cancelAuto();selectionId='manual-'+crypto.randomUUID();$('selectedText').value=text;
+    selectionBusy=fillingSelections.has(selectionId);$('retryCopy').hidden=true;
     $('selectedText').hidden=true;$('selectionTray').classList.remove('editing');
   }
   selectionRange=range.cloneRange();selectionControls();positionSelection();return true;
 }
 function clearSelection({resume=true}={}){
-  cancelAuto();selectionId=null;selectionRange=null;draggingText=false;
+  cancelAuto();copyGestureUntil=0;selectionId=null;selectionRange=null;draggingText=false;
   $('selectionTray').hidden=true;$('selectedText').hidden=true;$('selectedText').value='';
   $('selectionTray').classList.remove('editing');window.getSelection()?.removeAllRanges();
   if(resume&&resumeFollowing)followLive=true;resumeFollowing=false;
@@ -69,6 +72,9 @@ function clearSelection({resume=true}={}){
 }
 function readSelection({automatic=false}={}){
   if(draggingText||document.activeElement?.closest('#selectionTray'))return;
+  // Native word/line selection may finish after pointerup. Keep the last range
+  // in that gesture, instead of cancelling its pending copy/fill silently.
+  automatic=automatic||Date.now()<copyGestureUntil;
   const selection=window.getSelection();
   const text=selectedTranscript(selection,$('feed').querySelectorAll('.entry-text'));
   if(!text){if(!selectionBusy&&selectionId&&!$('selectionTray').classList.contains('editing'))clearSelection();return;}
@@ -83,26 +89,28 @@ function readSelection({automatic=false}={}){
   }
 }
 async function appendSelection(){
-  cancelAuto();if(selectionBusy||!selectionId)return;
+  cancelAuto();if(!selectionId||fillingSelections.has(selectionId))return;
   const id=selectionId,text=$('selectedText').value.trim();if(!text||text.length>10000)return;
   const copied=copyCurrentSelection();lastSelectionId=id;
-  selectionBusy=true;selectionResultStatus=null;selectionNotice='正在复制并填入…';selectionControls();renderDelivery();
-  try{const result=await api({type:'fill_selection',id,text});const didCopy=await copied;selectionResultStatus=result.status;selectionNotice=(didCopy?'已复制；':'复制未成功；')+result.message;if(selectionId===id)clearSelection();renderDelivery();}
-  catch(e){selectionNotice='尚未填入：'+e.message;renderDelivery();}
-  finally{selectionBusy=false;selectionControls();}
+  fillingSelections.add(id);selectionBusy=true;selectionResultStatus=null;selectionNotice='正在复制并填入…';selectionControls();renderDelivery();
+  // Finish clipboard work before draft filling can move focus into another page.
+  try{const didCopy=await copied;const result=await api({type:'fill_selection',id,text});if(lastSelectionId===id){selectionResultStatus=result.status;selectionNotice=(didCopy?'已复制；':'复制未成功，可点「重试复制」；')+result.message;if(selectionId===id)clearSelection();renderDelivery();}}
+  catch(e){if(lastSelectionId===id){selectionNotice='尚未填入：'+e.message;renderDelivery();}}
+  finally{fillingSelections.delete(id);selectionBusy=fillingSelections.has(selectionId);selectionControls();}
 }
 document.addEventListener('selectionchange',()=>readSelection());
 document.addEventListener('pointerdown',event=>{
-  if(event.target.closest('#feed .entry-text')){
-    cancelAuto();if(!selectionId)resumeFollowing=followLive;
+  // Dragging often starts in a paragraph's padding, not on a letter itself.
+  if(event.button===0&&event.target.closest('#feed')&&!event.target.closest('button,a,input,textarea')){
+    cancelAuto();copyGestureUntil=0;if(!selectionId)resumeFollowing=followLive;
     draggingText=true;gestureStarted=true;pauseFollowing();$('selectionTray').hidden=true;
   }else if(!event.target.closest('#selectionTray')){
     if(selectionId)clearSelection({resume:false});
     if(event.target===$('feed')){resumeFollowing=false;pauseFollowing();}
   }
 });
-document.addEventListener('pointerup',()=>{if(!draggingText)return;draggingText=false;readSelection({automatic:true});gestureStarted=false;if(state)render(state);});
-document.addEventListener('pointercancel',()=>{draggingText=false;gestureStarted=false;cancelAuto();if(state)render(state);});
+document.addEventListener('pointerup',()=>{if(!draggingText)return;draggingText=false;copyGestureUntil=Date.now()+400;readSelection({automatic:true});gestureStarted=false;if(state)render(state);});
+document.addEventListener('pointercancel',()=>{draggingText=false;gestureStarted=false;copyGestureUntil=0;cancelAuto();if(state)render(state);});
 document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&hasSelection()){event.preventDefault();clearSelection();return;}
   if((event.metaKey||event.ctrlKey)&&event.key==='Enter'&&selectionId){event.preventDefault();event.stopPropagation();void appendSelection();}
@@ -242,6 +250,11 @@ $('selectedText').oninput=()=>{cancelAuto();selectionId='manual-'+crypto.randomU
 $('cancelSelection').onclick=()=>clearSelection();$('copySelection').onclick=()=>{cancelAuto();copy($('selectedText').value);selectionControls();};
 $('editSelection').onclick=()=>{cancelAuto();$('selectedText').hidden=false;$('selectionTray').classList.add('editing');selectionControls();positionSelection();$('selectedText').focus();};
 $('appendSelection').onclick=appendSelection;
+$('retryCopy').onclick=async()=>{
+  const record=selectionCopy;if(!record)return;
+  const ok=await writeClipboard(record.text);record.ok=ok;
+  if(selectionCopy===record){$('retryCopy').hidden=ok;selectionNotice=ok?'已重新复制，可按 ⌘V 粘贴；未重复填入。':'复制仍未成功，请重新划选或按 ⌘C。';renderDelivery();}
+};
 $('clear').onclick=()=>{if(confirm('永久清空本机保存的全部转写和问题历史？')){selectionNotice='';lastSelectionId=null;clearSelection();historyStart=0;api({type:'clear'});}};
 chrome.runtime.onMessage.addListener(msg=>{if(msg.type==='state')render(msg.state);});
 $('saveKey').onclick=async()=>{try{await api({type:'configure_api',provider:'deepseek',key:$('apiKey').value});$('apiKey').value='';toast('已提交本机保存');}catch(e){toast(e.message)}};
