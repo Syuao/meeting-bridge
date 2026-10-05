@@ -2,6 +2,12 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.7.0
+
+- All 74 Node tests passed. Added coverage verifies model preference persistence, routing to connection tests and capture, rejection of changes during listening/testing, Paraformer region constraints, and timestamp-based interim/final transcript updates without sentence IDs.
+- Eight local browser checks passed for model selection, default preservation, history/binding retention, Qwen-only terminology input, region hints and disabled controls during recording/testing. Browser checks use synthetic state and do not start audio capture.
+- A real Paraformer WebSocket test sent 4.503 seconds of synthetic English audio including trailing silence. Six provisional updates arrived, followed by the correct final text of two test questions. No microphone or meeting audio was captured. This is a short integration smoke test, not an accuracy or long-session benchmark.
+
 ## Version 0.6.2
 
 - All 71 Node tests passed, including HTTP transport classification/redaction of Alibaba's `Arrearage` error and synchronous clipboard rejection/fallback handling.

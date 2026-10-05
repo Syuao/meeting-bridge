@@ -9,7 +9,7 @@ import {QuestionStream} from './question-stream.mjs';
 import {CaptionTracker} from './captions.mjs';
 import {SemanticExtractor,hasKey,saveKey,testConnection,PROVIDER} from './semantic.mjs';
 import {Translator} from './translation.mjs';
-import {AlibabaASR,StreamingTranscript,readASRConfig,asrPublicConfig,saveASRConfig,testASRConnection,ASR_MODEL} from './aliyun-asr.mjs';
+import {AlibabaASR,StreamingTranscript,readASRConfig,asrPublicConfig,saveASRConfig,testASRConnection,ASR_MODEL,asrModel} from './aliyun-asr.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const send = obj => { const b = Buffer.from(JSON.stringify(obj)); const h = Buffer.alloc(4); h.writeUInt32LE(b.length); process.stdout.write(Buffer.concat([h,b])); };
@@ -18,6 +18,7 @@ let ready=false,pending=[],inflight=null,questions=new QuestionStream(),captions
 let mode='rules';
 let apiTest=null;
 let cloud=null,cloudTranscript=null,heartbeat=null,stopTimer=null,stopping=false,finishing=false,lastPCM=0,asrTesting=false;
+let selectedASRModel=ASR_MODEL;
 let language = 'auto', started = false, idCounter = 0, speechEndedAt = 0;
 const info = (state, message) => send({type:'status', state, message});
 const metricsPath = path.join(root,'latency.jsonl');
@@ -27,7 +28,7 @@ function metric(value) {
 }
 function question(text,extra={}) { send({type:'question',id:`q-${Date.now()}-${++idCounter}`,text,at:Date.now(),...extra}); }
 function semanticState(state,message,usage) {send({type:'semantic',state,message,provider:PROVIDER.name,model:PROVIDER.model,configured:hasKey(root)});if(usage)metric({stage:'api',provider:PROVIDER.name,inputTokens:usage.input_tokens,outputTokens:usage.output_tokens});}
-function asrState(state,message){send({type:'asr_status',state,message,...asrPublicConfig(root)});}
+function asrState(state,message){send({type:'asr_status',state,message,...asrPublicConfig(root,selectedASRModel)});}
 const translator=new Translator(root,row=>send({type:'translation',...row}),(state,message,{usage,...extra})=>{
   send({type:'translation_status',state,message,...extra});
   if(usage)metric({stage:'translation',provider:extra.provider,inputTokens:usage.input_tokens,outputTokens:usage.output_tokens,latencyMs:extra.latencyMs});
@@ -84,7 +85,7 @@ async function start(options) {
   const mine = ++generation;
   const source=['tencent','tencent-text','aliyun-all','aliyun-tencent'].includes(options.source)?options.source:'all';
   const useCloud=source.startsWith('aliyun-');
-  let cloudConfig;if(useCloud){try{cloudConfig=readASRConfig(root);}catch(e){asrState('unconfigured',e.message);info('error',e.message);return;}}
+  let cloudConfig;if(useCloud){try{cloudConfig=readASRConfig(root);selectedASRModel=asrModel(options.asrModel,cloudConfig.region).id;}catch(e){asrState('error',e.message);info('error',e.message);return;}}
   mode=['semantic','rules'].includes(options.questionMode)?options.questionMode:'manual';
   language = ['en','zh','auto'].includes(options.language) ? options.language : 'auto';
   questions=new QuestionStream();captions=new CaptionTracker();
@@ -96,8 +97,8 @@ async function start(options) {
   started = true;
   if(mode==='semantic')semantic=new SemanticExtractor(root,q=>question(q.text,{detection:'semantic',source_ids:q.source_ids,kind:q.kind}),semanticState);
   if(useCloud){
-    cloudTranscript=new StreamingTranscript();
-    cloud=new AlibabaASR(cloudConfig,{language,hotwords:String(options.hotwords||'').slice(0,4000),onSentence:sentence=>{
+    cloudTranscript=new StreamingTranscript(undefined,selectedASRModel);
+    cloud=new AlibabaASR(cloudConfig,{model:selectedASRModel,language,hotwords:String(options.hotwords||'').slice(0,4000),onSentence:sentence=>{
       if(mine!==generation)return;
       const row=cloudTranscript.accept(sentence);if(!row)return;
       send({type:'transcript',...row});
@@ -160,7 +161,7 @@ async function start(options) {
             const client=cloud;info('loading','正在连接阿里云实时转写…');asrState('connecting','正在建立语音连接…');lastPCM=Date.now();
             void client.start().then(()=>{
               if(mine!==generation||stopping)return;
-              info('listening',source==='aliyun-all'?'正在监听系统声音 · 阿里云实时转写':'正在监听腾讯会议声音 · 阿里云实时转写');asrState('ready','阿里云已连接，正在实时转写');
+              info('listening',`${source==='aliyun-all'?'正在监听系统声音':'正在监听腾讯会议声音'} · ${asrModel(selectedASRModel).name}`);asrState('ready',`${asrModel(selectedASRModel).name}已连接，正在实时转写`);
               heartbeat=setInterval(()=>{if(mine===generation&&!stopping&&Date.now()-lastPCM>300)client.push(Buffer.alloc(3200));},100);
             }).catch(e=>{if(mine===generation){stop(e.message);info('error',e.message);}});
           }else info('listening',source==='tencent-text'?'正在读取腾讯会议右侧实时转写':source==='all'?'正在监听系统声音 · 本机转写':'正在监听腾讯会议声音 · 本机转写');
@@ -204,12 +205,13 @@ function handle(msg) {
     void testConnection(root,controller.signal).then(({message,usage})=>{if(!controller.signal.aborted)semanticState('ready',message,usage);}).catch(e=>{if(!controller.signal.aborted)semanticState('error',e.message);}).finally(()=>{if(apiTest===controller)apiTest=null;});
   }
   else if(msg.type==='retry_api')semantic?.retry();
-  else if(msg.type==='asr_status'){const config=asrPublicConfig(root);asrState(config.configured?'ready':'unconfigured',config.configured?'阿里云密钥已保存在本机；可点击测试连接':'尚未配置阿里云百炼 API 密钥');}
-  else if(msg.type==='configure_asr'){try{if(started||asrTesting)throw new Error('请先停止监听或等待连接测试结束，再修改阿里云配置。');saveASRConfig(root,{key:msg.key,region:msg.region});asrState('ready','阿里云密钥已保存；请测试连接');translator.retry();}catch(e){asrState('error',e.message);}}
+  else if(msg.type==='asr_status'){if(started||asrTesting)return;try{selectedASRModel=asrModel(msg.model).id;const config=asrPublicConfig(root,selectedASRModel);if(config.configured)asrModel(selectedASRModel,config.region);asrState(config.configured?'ready':'unconfigured',config.configured?`${asrModel(selectedASRModel).name}已选择；可点击测试连接`:'尚未配置阿里云百炼 API 密钥');}catch(e){asrState('error',e.message);}}
+  else if(msg.type==='configure_asr'){try{if(started||asrTesting)throw new Error('请先停止监听或等待连接测试结束，再修改阿里云配置。');const model=asrModel(msg.model,msg.region).id;saveASRConfig(root,{key:msg.key,region:msg.region});selectedASRModel=model;asrState('ready',`${asrModel(model).name}：阿里云密钥已保存；请测试连接`);translator.retry();}catch(e){asrState('error',e.message);}}
   else if(msg.type==='test_asr'){
     if(asrTesting||started)return;
-    asrTesting=true;asrState('testing','正在测试阿里云模型连接…');
-    void testASRConnection(root).then(message=>asrState('ready',message)).catch(e=>asrState('error',e.message)).finally(()=>{asrTesting=false;});
+    try{selectedASRModel=asrModel(msg.model).id;}catch(e){asrState('error',e.message);return;}
+    asrTesting=true;asrState('testing',`正在测试 ${asrModel(selectedASRModel).name}连接…`);
+    void testASRConnection(root,selectedASRModel).then(message=>asrState('ready',message)).catch(e=>asrState('error',e.message)).finally(()=>{asrTesting=false;});
   }
   else if(msg.type==='delivery_metrics' && Number.isFinite(msg.latencyMs)) {
     metric({stage:'draft',latencyMs:msg.latencyMs,status:msg.status});
@@ -227,4 +229,4 @@ process.stdin.on('data',data=> {
 process.stdin.on('end',()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
 process.stdout.on('error',()=>process.exit(0));
 for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
-send({type:'hello',version:'0.6.2',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});
+send({type:'hello',version:'0.7.0',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});

@@ -1,4 +1,4 @@
-# Meeting Bridge 0.6.2 · Mac 安装包
+# Meeting Bridge 0.7.0 · Mac 安装包
 
 支持 Apple Silicon（M1/M2/M3/M4 等）Mac，macOS 13+，Google Chrome。Intel Mac 请使用仓库中的源码安装方式。
 
@@ -13,6 +13,8 @@
 5. 固定 Meeting Bridge 到工具栏，打开 ChatGPT、DeepSeek、千问或 Qwen 网页对话，在侧栏中绑定。
 6. 在设置中填入自己的阿里云百炼 API 密钥，选择对应地域，测试连接。来源选择「系统声音→阿里云实时转写」，问题提取选「手动选句」。
 7. 点击「开始监听」，按 macOS 提示授权系统声音录制。划选英文后会复制并追加草稿；由你发送。Qwen-MT 中文翻译共用百炼密钥，DeepSeek 为可选服务。
+
+「对话与采集设置 → 云端转写模型」可选 Qwen 或 Paraformer，选择后自动保存，停止监听后可切换。Paraformer 仅支持北京密钥；当前术语输入仅用于 Qwen，切换后会保留。测试连接会使用当前选择的模型，中文翻译可独立选择服务。
 
 本机采集程序使用临时签名，安装包尚未获得 Apple Developer ID 签名或公证。macOS 可能阻止首次打开；请先确认下载来自项目的 GitHub Release，并根据系统提示决定是否允许。如果不希望允许未公证程序，可选择从源码构建。不要关闭系统整体安全保护。
 

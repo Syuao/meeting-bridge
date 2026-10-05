@@ -8,7 +8,7 @@ Live system-audio transcription and Chinese translation on macOS. Select transcr
 
 ## 能做什么
 
-- 系统输出音频 → 阿里云实时转写，中英文混合识别；支持只采集腾讯会议的输出。
+- 系统输出音频 → 阿里云实时转写，可选 Qwen 或 Paraformer，中英文混合识别；支持只采集腾讯会议的输出。
 - Qwen-MT Flash 流式中文翻译，DeepSeek 可选；临时故障自动退避重试。
 - 在连续原文中划选，松手即复制并追加到目标草稿；默认不弹框、不自动发送。
 - ChatGPT、DeepSeek、千问和国际版 Qwen 网页对话绑定，保留现有草稿。
@@ -29,7 +29,7 @@ flowchart LR
 
 ### 下载 Mac 预编译包（无需开发环境）
 
-在 [GitHub Releases](https://github.com/Syuao/meeting-bridge/releases/latest) 下载 `MeetingBridge-0.6.2-macOS-arm64.zip`，解压后运行 `Install.command`。包内自带 Node.js、桥接依赖和编译好的声音采集程序。然后在 Chrome 的 `chrome://extensions` 开启开发者模式，加载 `~/Library/Application Support/MeetingBridge/extension`。
+在 [GitHub Releases](https://github.com/Syuao/meeting-bridge/releases/latest) 下载 `MeetingBridge-0.7.0-macOS-arm64.zip`，解压后运行 `Install.command`。包内自带 Node.js、桥接依赖和编译好的声音采集程序。然后在 Chrome 的 `chrome://extensions` 开启开发者模式，加载 `~/Library/Application Support/MeetingBridge/extension`。
 
 仅适用于 Apple Silicon Mac、macOS 13+。需要自己的百炼 API 密钥，API 另行计费。此体验包免费，无自动更新；本机采集程序使用临时签名，未获得 Apple 公证，首次打开可能需要手动确认。详细步骤见 [安装包使用说明](distribution/README.md)。仅下载 `extension.zip` 不包含 Mac 采集程序，不能独立完成转写。
 
@@ -57,6 +57,10 @@ python3 install.py
 3. 打开目标聊天网站并登录，点击扩展图标；在「对话与采集设置」选择并绑定该标签页。
 4. 保存百炼 API Key，地域选择与密钥一致。来源选「系统声音→阿里云实时转写」，问题提取选「手动选句」。
 5. 开启「中文翻译」并选择 Qwen-MT，点击「开始监听」。首次使用按 macOS 提示允许系统录音。
+
+在「对话与采集设置 → 云端转写模型」选择 Qwen 实时版或 Paraformer 实时版，选择会自动保存，停止监听后可切换。旧配置继续使用 Qwen。Paraformer 共用北京地域的百炼密钥，不支持新加坡地域；「测试转写连接」会测试当前选择的模型。模型选择只影响语音转写，中文翻译服务独立设置。
+
+当前「专业术语」输入仅适用于 Qwen；Paraformer 需要单独创建云端热词表，本版尚未接入该功能，切换时会禁用输入并保留已有术语。
 
 源代码不包含编译后的 app、依赖目录或模型权重。**云转写无需下载 Whisper 模型。** 编译过程不触碰已经安装的采集程序；安装器会保留内容未改变的现有采集程序，减少重复授权。
 

@@ -84,3 +84,24 @@ test('custom font sizes and confirmation preferences persist without resetting o
  assert.equal((await load(storage).call({type:'get_state'})).config.fontSize,32);
  assert.equal((await load(storage).call({type:'get_state'})).config.confirmSelection,false);
 });
+
+test('ASR model selection persists and reaches connection tests and capture without changing history or binding',async()=>{
+  const qwen='qwen-audio-3.0-asr-flash-streaming',paraformer='paraformer-realtime-v2';
+  const storage={config:{streamingVersion:1,manualVersion:1,continuousVersion:1,hotwords:'Redis',translationEnabled:false},target:{tabId:7,url:'https://chatgpt.com/c/existing'},history:{transcripts:[{id:'old',text:'Saved text'}],questions:[]}};
+  const first=load(storage);assert.equal((await first.call({type:'get_state'})).config.asrModel,qwen);
+  assert.equal((await first.call({type:'config',value:{asrModel:paraformer}})).ok,true);
+  const reopened=load(storage),state=await reopened.call({type:'get_state'});
+  assert.equal(state.config.asrModel,paraformer);assert.equal(state.target.tabId,7);assert.equal(state.transcripts[0].text,'Saved text');assert.equal(state.config.hotwords,'Redis');
+  await reopened.call({type:'test_asr'});assert.equal(reopened.outgoing.at(-1).model,paraformer);
+  reopened.emit({type:'asr_status',state:'testing'});
+  assert.match((await reopened.call({type:'config',value:{asrModel:qwen}})).error,/等待/);
+  reopened.emit({type:'asr_status',state:'ready'});
+  await reopened.call({type:'start'});assert.equal(reopened.outgoing.at(-1).asrModel,paraformer);
+  assert.match((await reopened.call({type:'config',value:{asrModel:qwen}})).error,/停止/);
+  await reopened.call({type:'stop'});reopened.emit({type:'status',state:'stopped'});
+  assert.match((await reopened.call({type:'config',value:{asrModel:'unsupported'}})).error,/受支持/);
+  assert.equal((await reopened.call({type:'get_state'})).config.asrModel,paraformer);
+  await reopened.call({type:'config',value:{asrModel:qwen}});await reopened.call({type:'test_asr'});
+  assert.equal(reopened.outgoing.at(-1).model,qwen);
+  const invalid=load({config:{asrModel:'obsolete'}});assert.equal((await invalid.call({type:'get_state'})).config.asrModel,qwen);
+});

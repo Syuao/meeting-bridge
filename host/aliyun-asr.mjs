@@ -4,6 +4,12 @@ import {randomUUID} from 'node:crypto';
 import WebSocket from 'ws';
 
 export const ASR_MODEL='qwen-audio-3.0-asr-flash-streaming';
+export const PARAFORMER_MODEL='paraformer-realtime-v2';
+export function asrModel(model=ASR_MODEL,region){
+  if(![ASR_MODEL,PARAFORMER_MODEL].includes(model))throw new Error('不支持的转写模型，请重新选择。');
+  if(model===PARAFORMER_MODEL&&region&&region!=='beijing')throw new Error('Paraformer 实时版仅支持北京地域，请使用北京地域的百炼密钥，或切回 Qwen。');
+  return {id:model,name:model===PARAFORMER_MODEL?'Paraformer 实时版':'Qwen 实时版'};
+}
 const endpoints={beijing:'wss://dashscope.aliyuncs.com/api-ws/v1/inference',singapore:'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference'};
 const configFile=root=>path.join(root,'aliyun-asr.json');
 export function readASRConfig(root){
@@ -15,7 +21,7 @@ function validateConfig({key,region='beijing'}={}){
   if(!Object.hasOwn(endpoints,region))throw new Error('请选择密钥所属地域：北京或新加坡。');
   return {key,region};
 }
-export function asrPublicConfig(root){try{const {region}=readASRConfig(root);return {configured:true,region,model:ASR_MODEL};}catch{return {configured:false,region:'beijing',model:ASR_MODEL};}}
+export function asrPublicConfig(root,model=ASR_MODEL){try{const {region}=readASRConfig(root);return {configured:true,region,model};}catch{return {configured:false,region:'beijing',model};}}
 export function saveASRConfig(root,input){
   const config=validateConfig({...input,key:String(input.key||'').trim()});
   const file=configFile(root);if(fs.existsSync(file))fs.chmodSync(file,0o600);
@@ -25,10 +31,12 @@ export function saveASRConfig(root,input){
 export function parseHotwords(text=''){
   return [...new Set(String(text).split(/[,，;；\n]+/).map(x=>x.trim()).filter(Boolean))].slice(0,80).filter(x=>x.length<=60);
 }
-export function runTask(taskID,{language='auto',hotwords=''}={}){
+export function runTask(taskID,{language='auto',hotwords='',model=ASR_MODEL}={}){
+  asrModel(model);
   const words=parseHotwords(hotwords),parameters={format:'pcm',sample_rate:16000,language_hints:language==='en'?['en']:language==='zh'?['zh']:['en','zh'],semantic_punctuation_enabled:false,max_sentence_silence:500,multi_threshold_mode_enabled:true,heartbeat:true};
-  if(words.length)parameters.vocabulary=Object.fromEntries(words.map(word=>[word,2]));
-  return {header:{action:'run-task',task_id:taskID,streaming:'duplex'},payload:{task_group:'audio',task:'asr',function:'recognition',model:ASR_MODEL,parameters,input:{}}};
+  // Paraformer requires a separately created vocabulary_id, not Qwen's inline vocabulary.
+  if(model===ASR_MODEL&&words.length)parameters.vocabulary=Object.fromEntries(words.map(word=>[word,2]));
+  return {header:{action:'run-task',task_id:taskID,streaming:'duplex'},payload:{task_group:'audio',task:'asr',function:'recognition',model,parameters,input:{}}};
 }
 export function finishTask(taskID){return {header:{action:'finish-task',task_id:taskID,streaming:'duplex'},payload:{input:{}}};}
 export function safeASRError(code){
@@ -42,12 +50,14 @@ export function safeASRError(code){
 
 // One ID survives every interim revision. Finals cannot be overwritten by late partials.
 export class StreamingTranscript {
-  constructor(sessionID=randomUUID()){this.sessionID=sessionID;this.rows=new Map();}
+  constructor(sessionID=randomUUID(),model=ASR_MODEL){asrModel(model);this.sessionID=sessionID;this.model=model;this.rows=new Map();}
   accept(sentence,at=Date.now()){
-    if(!sentence||sentence.heartbeat||!Number.isInteger(sentence.sentence_id)||sentence.sentence_id<1||typeof sentence.text!=='string'||!sentence.text.trim())return null;
-    const id=`ali-${this.sessionID}-${sentence.sentence_id}`,old=this.rows.get(id),text=sentence.text.trim(),final=sentence.sentence_end===true;
+    if(!sentence||sentence.heartbeat||typeof sentence.text!=='string'||!sentence.text.trim())return null;
+    const byTime=this.model===PARAFORMER_MODEL,value=byTime?sentence.begin_time:sentence.sentence_id;
+    if(!Number.isInteger(value)||value<(byTime?0:1))return null;
+    const id=`ali-${this.sessionID}-${byTime?'time-':''}${value}`,old=this.rows.get(id),text=sentence.text.trim(),final=sentence.sentence_end===true;
     if(old?.final||(old?.text===text&&old.final===final))return null;
-    const row={id,piece:id,text,final,source:'aliyun',at:old?.at||at,beginTime:sentence.begin_time,endTime:sentence.end_time};
+    const row={id,piece:id,text,final,source:'aliyun',model:this.model,at:old?.at||at,beginTime:sentence.begin_time,endTime:sentence.end_time};
     this.rows.set(id,row);while(this.rows.size>12)this.rows.delete(this.rows.keys().next().value);
     return row;
   }
@@ -55,8 +65,8 @@ export class StreamingTranscript {
 }
 
 export class AlibabaASR {
-  constructor(config,{language='auto',hotwords='',onSentence=()=>{},onError=()=>{},WebSocketClass=WebSocket,startTimeout=12000,finishTimeout=5000}={}){
-    this.config=validateConfig(config);Object.assign(this,{language,hotwords,onSentence,onError,WebSocketClass,startTimeout,finishTimeout});
+  constructor(config,{model=ASR_MODEL,language='auto',hotwords='',onSentence=()=>{},onError=()=>{},WebSocketClass=WebSocket,startTimeout=12000,finishTimeout=5000}={}){
+    this.config=validateConfig(config);asrModel(model,this.config.region);Object.assign(this,{model,language,hotwords,onSentence,onError,WebSocketClass,startTimeout,finishTimeout});
     this.taskID=randomUUID();this.phase='new';this.queue=[];this.queuedBytes=0;
   }
   start(){
@@ -124,9 +134,9 @@ export class AlibabaASR {
   }
 }
 
-export async function testASRConnection(root){
-  const client=new AlibabaASR(readASRConfig(root));
+export async function testASRConnection(root,model=ASR_MODEL){
+  const client=new AlibabaASR(readASRConfig(root),{model});
   try{await client.start();client.push(Buffer.alloc(3200));await new Promise(r=>setTimeout(r,100));client.push(Buffer.alloc(3200));await client.finish();}
   finally{client.abort();}
-  return '阿里云连接成功，模型可用。请开始监听并播放英文声音，验证实际转写效果。';
+  return `${asrModel(model).name}连接成功，模型可用。请开始监听并播放英文声音，验证实际转写效果。`;
 }

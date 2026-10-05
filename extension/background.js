@@ -1,11 +1,13 @@
 import './sites.js';
 const Sites=globalThis.MeetingBridgeSites;
+const ASR_MODELS=['qwen-audio-3.0-asr-flash-streaming','paraformer-realtime-v2'];
 import {translationCandidates} from './translation.js';
 let port=null, delivering=false, saveTimer;
-const state={status:'stopped',message:'准备就绪',running:false,level:0,processing:0,partial:null,liveLines:[],transcripts:[],questions:[],target:null,translation:{state:'ready',message:'正在准备中文翻译'},asr:{state:'unconfigured',message:'尚未配置阿里云百炼 API 密钥',configured:false,region:'beijing'},semantic:{state:'unconfigured',message:'尚未配置 API',configured:false},config:{autoFill:false,autoSend:false,language:'auto',source:'aliyun-all',questionMode:'manual',fontSize:14,confirmSelection:false,translationEnabled:true,translationProvider:'qwen-mt',continuousVersion:1,liveExpanded:true,hotwords:'',streamingVersion:1,manualVersion:1}};
+const state={status:'stopped',message:'准备就绪',running:false,level:0,processing:0,partial:null,liveLines:[],transcripts:[],questions:[],target:null,translation:{state:'ready',message:'正在准备中文翻译'},asr:{state:'unconfigured',message:'尚未配置阿里云百炼 API 密钥',configured:false,region:'beijing'},semantic:{state:'unconfigured',message:'尚未配置 API',configured:false},config:{autoFill:false,autoSend:false,language:'auto',asrModel:ASR_MODELS[0],source:'aliyun-all',questionMode:'manual',fontSize:14,confirmSelection:false,translationEnabled:true,translationProvider:'qwen-mt',continuousVersion:1,liveExpanded:true,hotwords:'',streamingVersion:1,manualVersion:1}};
 const initialized=(async()=>{
   const saved=await chrome.storage.local.get(['config','target','history']);
   Object.assign(state.config,saved.config||{}); state.target=saved.target||null;
+  if(!ASR_MODELS.includes(state.config.asrModel))state.config.asrModel=ASR_MODELS[0];
   // The user selected cloud streaming; migrate the source once, preserving draft preferences/history.
   if(!saved.config?.streamingVersion){state.config.source='aliyun-all';state.config.questionMode='semantic';state.config.streamingVersion=1;await chrome.storage.local.set({config:{...state.config,autoSend:false}});}
   // Apply the user's new workflow once, without deleting history, bindings or API keys.
@@ -86,11 +88,17 @@ async function command(msg,sender) {
   if(msg.type==='get_state') return state;
   if(msg.type==='translation_retry'){connect().postMessage({type:'translation_retry'});queueTranslation(state.transcripts);return {ok:true};}
   if(['configure_api','api_status','retry_api','test_api'].includes(msg.type)){connect().postMessage({type:msg.type,provider:msg.provider,...(msg.type==='configure_api'?{key:String(msg.key||'')}: {})});return {ok:true};}
-  if(['configure_asr','asr_status','test_asr'].includes(msg.type)){connect().postMessage({type:msg.type,...(msg.type==='configure_asr'?{key:String(msg.key||''),region:msg.region}:{})});return {ok:true};}
+  if(['configure_asr','asr_status','test_asr'].includes(msg.type)){connect().postMessage({type:msg.type,model:state.config.asrModel,...(msg.type==='configure_asr'?{key:String(msg.key||''),region:msg.region}:{})});return {ok:true};}
   if(msg.type==='get_tabs') return (await chrome.tabs.query({url:Sites.matches})).map(t=>({id:t.id,title:t.title,url:t.url,provider:Sites.site(t.url)?.name}));
   if(msg.type==='bind') {const tab=await chrome.tabs.get(Number(msg.tabId));if(!Sites.site(tab.url))throw new Error('请选择 ChatGPT、DeepSeek 或千问标签页');if(state.target&&(state.target.tabId!==tab.id||key(state.target.url)!==key(tab.url))){for(const q of state.questions)if(['pending','waiting'].includes(q.status)){q.status='held';q.requested=false;q.detail='旧对话的问题，可手动填入';}}state.target={tabId:tab.id,title:tab.title,url:tab.url};await chrome.storage.local.set({target:state.target});update(true);void deliver();return {ok:true};}
   if(msg.type==='config') {
     const c=msg.value||{};
+    if(Object.hasOwn(c,'asrModel')){
+      if(!ASR_MODELS.includes(c.asrModel))throw new Error('请选择受支持的转写模型。');
+      if(state.running||state.status==='stopping'||state.asr?.state==='testing')throw new Error('请先停止监听或等待连接测试结束，再切换转写模型。');
+      state.config.asrModel=c.asrModel;
+      state.asr={...state.asr,model:c.asrModel,state:'ready',message:'转写模型已切换，请点击测试连接或开始监听。'};
+    }
     for(const k of ['autoFill','autoSend','liveExpanded','confirmSelection','translationEnabled'])if(typeof c[k]==='boolean')state.config[k]=c[k];
     if(['auto','en','zh'].includes(c.language))state.config.language=c.language;
     if(['tencent','all','tencent-text','aliyun-all','aliyun-tencent'].includes(c.source))state.config.source=c.source;
@@ -103,7 +111,7 @@ async function command(msg,sender) {
     if(typeof c.translationEnabled==='boolean'||['qwen-mt','deepseek'].includes(c.translationProvider)){if(state.config.translationEnabled)connect();syncTranslation();if(!state.config.translationEnabled)state.translation={state:'off',message:'中文翻译已关闭'};}
     update();void deliver();return {ok:true};
   }
-  if(msg.type==='start') {if(state.running||state.status==='stopping')return {ok:true};state.liveLines=[];state.partial=null;state.startedAt=Date.now();state.status='loading';state.running=true;state.message='正在准备实时转写…';update();connect().postMessage({type:'start',source:state.config.source,language:state.config.language,questionMode:state.config.questionMode,hotwords:state.config.hotwords});return {ok:true};}
+  if(msg.type==='start') {if(state.running||state.status==='stopping')return {ok:true};state.liveLines=[];state.partial=null;state.startedAt=Date.now();state.status='loading';state.running=true;state.message='正在准备实时转写…';update();connect().postMessage({type:'start',source:state.config.source,language:state.config.language,questionMode:state.config.questionMode,hotwords:state.config.hotwords,asrModel:state.config.asrModel});return {ok:true};}
   if(msg.type==='stop') {state.running=false;port?.postMessage({type:'stop'});state.status=port?'stopping':'stopped';state.message='正在停止并保存末段文字…';state.level=0;update();return {ok:true};}
   if(msg.type==='fill') {await deliver(msg.id);return {ok:true};}
   if(msg.type==='fill_selection') {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meeting Bridge · 会议提问助手",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "实时转写和中文翻译，划选英文追加到 ChatGPT、DeepSeek 或千问网页草稿。",
   "permissions": [
     "nativeMessaging",

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {once} from 'node:events';
 import WebSocket,{WebSocketServer} from 'ws';
-import {AlibabaASR,StreamingTranscript,runTask,ASR_MODEL,saveASRConfig,asrPublicConfig,readASRConfig,safeASRError} from '../host/aliyun-asr.mjs';
+import {AlibabaASR,StreamingTranscript,runTask,ASR_MODEL,PARAFORMER_MODEL,saveASRConfig,asrPublicConfig,readASRConfig,safeASRError} from '../host/aliyun-asr.mjs';
 import {SemanticExtractor,saveKey,validateQuestions} from '../host/semantic.mjs';
 const key='sk-'+('test-only-'.repeat(4));
 const config={key,region:'beijing'};
@@ -104,4 +104,47 @@ test('superseded interim words cannot be emitted from an older in-flight result'
   extractor.feed([{id:'s1',text:'Why Redshift?'}],[{id:'s1'}]);complete();await pause(30);
   assert.equal(questions.length,0);
   assert.deepEqual(validateQuestions({questions:[quote('Why Redis ?')]},[{id:'s1',text:'Why Redis ?'}],['s1'],[{source_ids:['s1'],text:'Why Redis?'}]),[]);
+});
+
+test('Paraformer uses its own request model, rejects unsupported regions, and omits Qwen-only vocabulary',()=>{
+  for(const language of ['en','zh','auto']){
+    const task=runTask('paraformer-test',{model:PARAFORMER_MODEL,language,hotwords:'Redis, Kubernetes'});
+    assert.equal(task.payload.model,PARAFORMER_MODEL);
+    assert.deepEqual(task.payload.parameters.language_hints,language==='auto'?['en','zh']:[language]);
+    assert.equal(task.payload.parameters.vocabulary,undefined);
+    assert.equal(task.payload.parameters.heartbeat,true);
+  }
+  assert.throws(()=>new AlibabaASR({...config,region:'singapore'},{model:PARAFORMER_MODEL}),/北京/);
+  assert.throws(()=>new AlibabaASR(config,{model:'unsupported'}),/不支持/);
+  assert.equal(new AlibabaASR({...config,region:'singapore'}).model,ASR_MODEL);
+});
+test('Paraformer WebSocket results without sentence IDs retain revisions, distinct turns, and final text',async t=>{
+  const tracker=new StreamingTranscript('paraformer-session',PARAFORMER_MODEL),rows=[];
+  const WebSocketClass=await fixture(t,ws=>ws.on('message',(data,binary)=>{
+    if(binary)return;
+    const request=JSON.parse(data),task_id=request.header.task_id;
+    const emit=(event,sentence)=>ws.send(JSON.stringify({header:{task_id,event},payload:{output:{sentence}}}));
+    if(request.header.action==='run-task'){
+      assert.equal(request.payload.model,PARAFORMER_MODEL);
+      emit('task-started');
+      emit('result-generated',{begin_time:0,text:'How would you',sentence_end:false});
+      emit('result-generated',{begin_time:0,text:'How would you design a cache?',sentence_end:false});
+      emit('result-generated',{begin_time:0,text:'How would you design a cache?',sentence_end:true});
+      emit('result-generated',{begin_time:0,text:'late broken partial',sentence_end:false});
+      emit('result-generated',{begin_time:3000,text:'我们使用',sentence_end:false});
+      emit('result-generated',{begin_time:4000,text:'ignore heartbeat',heartbeat:true});
+    }else{
+      assert.equal(request.header.streaming,'duplex');
+      emit('result-generated',{begin_time:3000,text:'我们使用 Redis。',sentence_end:true});
+      emit('task-finished');
+    }
+  }));
+  const client=new AlibabaASR(config,{model:PARAFORMER_MODEL,WebSocketClass,onSentence:s=>{const row=tracker.accept(s);if(row)rows.push(row);}});
+  t.after(()=>client.abort());await client.start();client.push(Buffer.alloc(3200));await client.finish();
+  assert.equal(rows.length,5);assert.equal(new Set(rows.map(r=>r.id)).size,2);
+  assert.equal(rows[0].id,rows[2].id);assert.equal(rows[3].id,rows[4].id);
+  assert.deepEqual(tracker.recent().map(r=>r.text),['How would you design a cache?','我们使用 Redis。']);
+  assert.ok(tracker.recent().every(r=>r.final&&r.model===PARAFORMER_MODEL));
+  assert.equal(tracker.accept({text:'missing timestamp',sentence_end:true}),null);
+  assert.notEqual(new StreamingTranscript('next-session',PARAFORMER_MODEL).accept({begin_time:0,text:'New meeting'}).id,rows[0].id);
 });
