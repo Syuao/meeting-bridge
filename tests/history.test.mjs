@@ -6,15 +6,15 @@ import fs from 'node:fs/promises';
 const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 function load(storage={}) {
-  let handle,native;const outgoing=[];
+  let handle,native;const outgoing=[],broadcasts=[];
   const chrome={
     storage:{local:{async get(){return structuredClone(storage)},async set(data){Object.assign(storage,structuredClone(data))}},session:{async get(){return {}}}},
-    runtime:{onMessage:{addListener(fn){handle=fn}},async sendMessage(){},connectNative(){return {onMessage:{addListener(fn){native=fn}},onDisconnect:{addListener(){}},postMessage(msg){outgoing.push(msg)}}}},
+    runtime:{onMessage:{addListener(fn){handle=fn}},async sendMessage(msg){broadcasts.push(structuredClone(msg))},connectNative(){return {onMessage:{addListener(fn){native=fn}},onDisconnect:{addListener(){}},postMessage(msg){outgoing.push(msg)}}}},
     sidePanel:{async setPanelBehavior(){}},
     tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}}}
   };
   vm.runInNewContext(code,{translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console});
-  return {outgoing,call:msg=>new Promise(resolve=>handle(msg,{},resolve)),emit:msg=>native(msg)};
+  return {outgoing,broadcasts,call:msg=>new Promise(resolve=>handle(msg,{},resolve)),emit:msg=>native(msg)};
 }
 test('transcripts persist while audio level events continue, and survive a worker restart',async()=>{
   const storage={};const bridge=load(storage);await bridge.call({type:'start'});
@@ -104,4 +104,13 @@ test('ASR model selection persists and reaches connection tests and capture with
   await reopened.call({type:'config',value:{asrModel:qwen}});await reopened.call({type:'test_asr'});
   assert.equal(reopened.outgoing.at(-1).model,qwen);
   const invalid=load({config:{asrModel:'obsolete'}});assert.equal((await invalid.call({type:'get_state'})).config.asrModel,qwen);
+});
+
+test('audio levels use compact events rather than serializing transcript history',async()=>{
+ const app=load({history:{transcripts:Array.from({length:2400},(_,i)=>({id:String(i),text:'Saved paragraph'})),questions:[]}});
+ await app.call({type:'start'});const start=app.broadcasts.length;
+ for(let i=0;i<10;i++)app.emit({type:'level',value:i/10});
+ const levels=app.broadcasts.slice(start);
+ assert.equal(levels.length,10);assert.ok(levels.every(msg=>msg.type==='level'&&!('state' in msg)));
+ assert.equal((await app.call({type:'get_state'})).transcripts.length,2400);
 });

@@ -32,6 +32,7 @@ function connect() {
   if(port) return port;
   port=chrome.runtime.connectNative('local.meetingbridge');
   port.onMessage.addListener(msg=>{
+    if(msg.type==='level'){state.level=msg.value;chrome.runtime.sendMessage({type:'level',value:msg.value}).catch(()=>{});return;}
     if(msg.type==='status') {state.status=msg.state;state.message=msg.message;state.running=!['stopped','error','stopping'].includes(msg.state);if(!state.running){state.level=0;state.processing=0;if(msg.state!=='stopping')state.partial=null;}}
     if(msg.type==='error') state.message=msg.message;
     if(msg.type==='semantic')state.semantic=msg;
@@ -41,7 +42,6 @@ function connect() {
       const row=state.transcripts.find(r=>r.id===msg.id);
       if(row&&typeof msg.sourceText==='string'&&typeof msg.text==='string'&&msg.text.trim()&&msg.text.length<=10000)row.translation={text:msg.text,sourceText:msg.sourceText,model:msg.model,provider:msg.provider,complete:msg.complete!==false,at:msg.at};
     }
-    if(msg.type==='level') state.level=msg.value;
     if(msg.type==='processing') state.processing=msg.queue;
     if(msg.type==='partial')state.partial=msg;
     if(msg.type==='transcript') {if(state.partial?.piece===msg.piece&&msg.final!==false)state.partial=null;const i=state.transcripts.findIndex(x=>x.id===msg.id);const old=i>=0?state.transcripts[i]:null;const row={...msg,...(old?.translation?{translation:old.translation}:{})};if(i>=0)state.transcripts[i]=row;else state.transcripts.push(row);if(msg.source!=='tencent-text'&&msg.final!==false&&!(old?.final)){state.liveLines.push(msg.text);state.liveLines=state.liveLines.slice(-2);}state.processing=Math.max(0,state.processing-1);queueTranslation([row]);}
@@ -53,7 +53,13 @@ function connect() {
   return port;
 }
 const key=Sites.key;
+const receiverVersions=new Map();
 async function sendToComposer(tabId,message){
+  if(!receiverVersions.has(tabId)){
+    let probe;try{probe=await chrome.tabs.sendMessage(tabId,{type:'probe_composer',expectedKey:message.expectedKey});}catch{}
+    if(probe?.version!=='0.7.1')await chrome.scripting.executeScript({target:{tabId},files:['sites.js','content.js']});
+    receiverVersions.set(tabId,true);
+  }
   try{
     const result=await chrome.tabs.sendMessage(tabId,message);
     if(result)return result;
@@ -73,6 +79,7 @@ async function deliver(id=null) {
   const q=state.questions.find(x=>['pending','waiting'].includes(x.status)&&(x.requested||automatic));
   if(!q) return;
   if(!state.target) {q.status='waiting';q.detail='先绑定一个目标对话';update(true);return;}
+  const previousStatus=q.status,previousDetail=q.detail;
   delivering=true;
   try {
     const tab=await chrome.tabs.get(state.target.tabId);
@@ -81,11 +88,19 @@ async function deliver(id=null) {
     if(!result?.ok) {q.status='waiting';q.detail=result?.message||'输入框尚未准备好';}
     else {q.requested=false;q.appended=!!result.appended;q.status=result.sent?'sent':'filled';q.detail=result.message||'';q.latencyMs=q.speechEndedAt?Date.now()-q.speechEndedAt:null;if(q.latencyMs)port?.postMessage({type:'delivery_metrics',latencyMs:q.latencyMs,status:q.status});}
   } catch(e) {q.status='waiting';q.detail=/Receiving end|Could not establish connection/.test(e.message||'')?'无法连接目标对话页面，请刷新该页面后重试':e.message;}
-  finally {delivering=false;update(true);if(['sent','filled'].includes(q.status))void deliver();}
+  finally {delivering=false;if(q.status!==previousStatus||q.detail!==previousDetail)update(true);if(['sent','filled'].includes(q.status))void deliver();}
 }
 async function command(msg,sender) {
   await initialized;
   if(msg.type==='get_state') return state;
+  if(msg.type==='check_composer'){
+    if(!state.target)throw new Error('请先绑定目标对话。');
+    const tab=await chrome.tabs.get(state.target.tabId);
+    if(!Sites.site(tab.url)||key(tab.url)!==key(state.target.url))throw new Error('目标标签页已切换对话，请重新绑定。');
+    receiverVersions.delete(tab.id);
+    const result=await sendToComposer(tab.id,{type:'probe_composer',expectedKey:key(state.target.url)});
+    return {ok:!!result?.ready,message:result?.ready?'已连接目标输入框，无需刷新网页。':'输入框暂未就绪；请在绑定的对话页显示输入框后重试。'};
+  }
   if(msg.type==='translation_retry'){connect().postMessage({type:'translation_retry'});queueTranslation(state.transcripts);return {ok:true};}
   if(['configure_api','api_status','retry_api','test_api'].includes(msg.type)){connect().postMessage({type:msg.type,provider:msg.provider,...(msg.type==='configure_api'?{key:String(msg.key||'')}: {})});return {ok:true};}
   if(['configure_asr','asr_status','test_asr'].includes(msg.type)){connect().postMessage({type:msg.type,model:state.config.asrModel,...(msg.type==='configure_asr'?{key:String(msg.key||''),region:msg.region}:{})});return {ok:true};}
@@ -139,10 +154,11 @@ chrome.runtime.onMessage.addListener((msg,sender,reply)=>{
 chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}).catch(()=>{});
 chrome.tabs.onUpdated.addListener(async(id,change,tab)=>{
   await initialized;
+  if(change.url||change.status==='loading')receiverVersions.delete(id);
   if(id!==state.target?.tabId || !change.url)return;
   // Adopt the first conversation created in a deliberately bound new-chat tab.
   if(Sites.adopt(state.target.url,tab.url)) {
     state.target.url=tab.url;state.target.title=tab.title;await chrome.storage.local.set({target:state.target});update();
   }
 });
-chrome.tabs.onRemoved.addListener(id=>{if(id===state.target?.tabId){state.message='目标对话已关闭，请重新绑定';update();}});
+chrome.tabs.onRemoved.addListener(id=>{receiverVersions.delete(id);if(id===state.target?.tabId){state.message='目标对话已关闭，请重新绑定';update();}});

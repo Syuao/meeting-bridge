@@ -2,6 +2,14 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.7.1
+
+- All 78 Node tests passed, including compact audio meter messages, unchanged delivery failures avoiding repeated history broadcasts, receiver upgrades, and a read-only composer reconnect check.
+- All 21 local panel checks passed. They cover repeated selection/copy/append, pending fills, selection protection during transcript revisions, loading older history, a bounded live window, and meter updates making no transcript DOM mutations.
+- All nine browser composer checks passed. They exercise multiple editors, a labelled ChatGPT composer, hidden stale editors, wrapper IDs, delayed mounting, navigation during recovery, ambiguous editors, idle heartbeats, and reinjection deduplication. Run a local HTTP server at the repository root and open `tests/browser/composer.html` to repeat these synthetic checks.
+- A local in-app browser comparison with 2,400 synthetic bilingual paragraphs measured the synchronous selection-release handler at 132.7 ms before and 0.2 ms after the change; the live DOM reduced from 2,400 to 200 paragraphs. Initial rendering measured 190.8 ms before and 13.6 ms after. These single-run fixture measurements exclude real clipboard/ChatGPT/network work and do not measure or guarantee the disappearance of macOS beachballs.
+- No real meeting audio or transcript was transmitted for these tests. Actual website updates, long conversations, other extensions, and OS clipboard behavior can still affect latency.
+
 ## Version 0.7.0
 
 - All 74 Node tests passed. Added coverage verifies model preference persistence, routing to connection tests and capture, rejection of changes during listening/testing, Paraformer region constraints, and timestamp-based interim/final transcript updates without sentence IDs.

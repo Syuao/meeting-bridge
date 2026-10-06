@@ -1,13 +1,23 @@
 (() => {
-  if(globalThis.__meetingBridgeReceiver?.version==='0.6.0')return;
+  if(globalThis.__meetingBridgeReceiver?.version==='0.7.1')return;
+  const applied=globalThis.__meetingBridgeReceiver?.applied||new Set();
   globalThis.__meetingBridgeReceiver?.cleanup?.();
   const visible=el=>!!el && !!(el.offsetWidth||el.offsetHeight||el.getClientRects().length);
+  const editables='textarea,[contenteditable="true"],[contenteditable="plaintext-only"]';
+  const label=el=>['placeholder','aria-label','data-placeholder'].map(name=>el.getAttribute?.(name)||'').join(' ');
+  const writable=el=>!!el&&(el instanceof HTMLTextAreaElement||el.isContentEditable)&&!el.disabled&&!el.readOnly&&el.getAttribute?.('aria-disabled')!=='true'&&
+    !el.closest?.('[hidden],[inert],[aria-hidden="true"],.monaco-editor,.cm-editor,[role="search"]')&&!/search|搜索|编辑代码|code editor/i.test(label(el))&&visible(el);
+  const editor=el=>writable(el)?el:[...(el?.querySelectorAll?.(editables)||[])].find(writable);
   const Sites=globalThis.MeetingBridgeSites;
   const currentSite=()=>Sites?.site(location.href);
   const composer=()=>{
     const provider=currentSite();if(!provider)return null;
-    for(const selector of provider.selectors){const el=[...document.querySelectorAll(selector)].find(visible);if(el&&!el.disabled&&el.getAttribute?.('aria-disabled')!=='true')return el;}
-    const candidates=[...document.querySelectorAll('textarea,[contenteditable="true"][role="textbox"],[contenteditable="true"][data-placeholder],[contenteditable="true"].tiptap,[contenteditable="true"].ql-editor,[contenteditable="true"]')].filter(el=>visible(el)&&!el.disabled&&!/search|搜索/i.test((el.getAttribute?.('placeholder')||'')+' '+(el.getAttribute?.('aria-label')||'')));
+    for(const selector of provider.selectors){const matches=[...new Set([...document.querySelectorAll(selector)].map(editor).filter(Boolean))];if(matches.length===1)return matches[0];}
+    const candidates=[...document.querySelectorAll(editables)].filter(writable).filter(el=>!el.parentElement?.closest('[contenteditable="true"],[contenteditable="plaintext-only"]'));
+    // Chat pages also contain editable code blocks, search boxes and message edits.
+    // Prefer the labelled chat composer rather than requiring just one textbox.
+    const named=candidates.filter(el=>/ChatGPT|DeepSeek|Qwen|千问|询问|问问|发送消息|Ask anything|Message (?:ChatGPT|DeepSeek|Qwen)/i.test(label(el)));
+    if(named.length===1)return named[0];
     return candidates.length===1?candidates[0]:null;
   };
   const text=el=>('value' in el?el.value:el.innerText||el.textContent||'').trim();
@@ -15,21 +25,29 @@
   const normalized=s=>s.replace(/\s+/g,' ').trim();
   const wait=ms=>new Promise(r=>setTimeout(r,ms));
   let filling=false;
-  const applied=new Set();
   async function fill(msg) {
     if(applied.has(msg.id))return {ok:true,sent:false,message:'此问题已填入，未重复追加'};
     if(filling)return {ok:false,message:'正在填入上一条问题'};
     if((!msg.expectedKey||Sites?.key(location.href)!==msg.expectedKey))return {ok:false,message:'对话地址已变化，请重新绑定'};
     if(busy())return {ok:false,message:'等待当前对话完成回答'};
-    const el=composer();if(!el)return {ok:false,message:'找不到输入框，请确认已经登录目标网站并打开对话'};
     if(typeof msg.text!=='string'||!msg.text.trim()||msg.text.length>10000)return {ok:false,message:'问题内容无效'};
     filling=true;
     try {
+      let el=composer();
+      // SPA navigation can briefly remove/disable the editor. Yield to the page,
+      // then locate the replacement; never reuse a detached element or new chat.
+      for(let i=0;!el&&i<3;i++){
+        await wait(120);
+        if(Sites?.key(location.href)!==msg.expectedKey)return {ok:false,message:'对话地址已变化，请重新绑定'};
+        if(busy())return {ok:false,message:'等待当前对话完成回答'};
+        el=composer();
+      }
+      if(!el)return {ok:false,message:'输入框暂未就绪，正在自动重试；请确认已打开绑定的对话'};
       const before='value' in el?el.value:el.innerText||el.textContent||'';
       const appended=!!before.trim();
       const addition=(appended?'\n\n':'')+msg.text.trim();
       const expected=before+addition;
-      el.focus();
+      el.focus({preventScroll:true});
       if(el instanceof HTMLTextAreaElement) {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,expected);
         el.dispatchEvent(new Event('input',{bubbles:true}));
@@ -53,8 +71,13 @@
       return {ok:true,sent:false,message:'发送状态未确认，请检查页面'};
     } finally {filling=false;}
   }
-  const listener=(msg,sender,reply)=>{if(msg.type!=='fill_question')return false;fill(msg).then(reply).catch(e=>reply({ok:false,message:e.message}));return true;};
+  const listener=(msg,sender,reply)=>{
+    if(msg.type==='probe_composer'){const same=Sites?.key(location.href)===msg.expectedKey;reply({version:'0.7.1',ready:same&&!!composer(),sameConversation:same});return false;}
+    if(msg.type!=='fill_question')return false;fill(msg).then(reply).catch(e=>reply({ok:false,message:e.message}));return true;
+  };
   chrome.runtime.onMessage.addListener(listener);
-  const readyTimer=setInterval(()=> {try{if(!chrome.runtime?.id){clearInterval(readyTimer);return;}const el=composer();if(el&&!busy()&&!filling)chrome.runtime.sendMessage({type:'composer_ready'}).catch(()=>{});}catch{clearInterval(readyTimer);}},800);
-  globalThis.__meetingBridgeReceiver={version:'0.6.0',cleanup(){clearInterval(readyTimer);chrome.runtime.onMessage.removeListener(listener);}};
+  // Only a queued fill needs DOM inspection. Idle tabs no longer scan the whole
+  // conversation (or force layout) on every heartbeat.
+  const readyTimer=setInterval(()=> {try{if(!chrome.runtime?.id){clearInterval(readyTimer);return;}if(!filling)chrome.runtime.sendMessage({type:'composer_ready'}).catch(()=>{});}catch{clearInterval(readyTimer);}},1200);
+  globalThis.__meetingBridgeReceiver={version:'0.7.1',applied,cleanup(){clearInterval(readyTimer);chrome.runtime.onMessage.removeListener(listener);}};
 })();

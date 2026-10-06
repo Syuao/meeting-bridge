@@ -229,4 +229,4 @@ process.stdin.on('data',data=> {
 process.stdin.on('end',()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
 process.stdout.on('error',()=>process.exit(0));
 for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
-send({type:'hello',version:'0.7.0',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});
+send({type:'hello',version:'0.7.1',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});

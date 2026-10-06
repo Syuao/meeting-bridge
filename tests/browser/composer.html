@@ -1,0 +1,58 @@
+<!doctype html><meta charset="utf-8"><title>Composer recovery checks</title>
+<style>body{font:15px system-ui}#editors{padding:20px}[contenteditable],textarea{display:block;border:1px solid #aaa;min-height:35px;margin:8px}.pass{color:green}.fail{color:red}</style>
+<h1>Composer recovery checks · synthetic text only</h1><ol id="results"></ol><div id="editors"></div>
+<script src="../../extension/sites.js"></script>
+<script>
+const actualSite=MeetingBridgeSites.site('https://chatgpt.com/');
+let fixtureURL='https://chatgpt.com/c/test',heartbeats=[],listeners=new Set(),sent=0;
+MeetingBridgeSites={site:()=>actualSite,key:()=>fixtureURL};
+window.setInterval=fn=>{heartbeats.push(fn);return heartbeats.length};window.clearInterval=()=>{};
+window.chrome={runtime:{id:'fixture',onMessage:{addListener:fn=>listeners.add(fn),removeListener:fn=>listeners.delete(fn)},sendMessage:async()=>{}}};
+const ask=msg=>new Promise(resolve=>{for(const listener of listeners)listener(msg,{},resolve)});
+const fill=(id,text)=>ask({type:'fill_question',id,text,expectedKey:'https://chatgpt.com/c/test',autoSend:false});
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+const editors=document.getElementById('editors'),results=document.getElementById('results');
+const assert=(ok,message)=>{if(!ok)throw Error(message)};
+const install=()=>new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='../../extension/content.js';s.onload=resolve;s.onerror=reject;document.body.append(s)});
+async function check(name,fn){const li=document.createElement('li');try{await fn();li.className='pass';li.textContent='PASS '+name}catch(e){li.className='fail';li.textContent='FAIL '+name+': '+e.message}results.append(li)}
+</script>
+<script type="module">
+await install();
+await check('labelled ChatGPT composer is found alongside editable code blocks',async()=>{
+ editors.innerHTML='<textarea aria-label="编辑代码">sample code</textarea><div contenteditable="true" aria-label="Other editor">Other</div><div contenteditable="true" aria-label="询问 ChatGPT">Existing draft.</div>';
+ const result=await fill('label','First question?');assert(result.ok,'not found');assert(editors.lastChild.innerText.includes('First question?'),'wrong editor');assert(editors.firstChild.value==='sample code','code changed');assert(editors.children[1].innerText==='Other','other editor changed');
+});
+await check('successive selections append in order, duplicate retries append only once',async()=>{
+ await fill('second','Second question?');await fill('third','Third question?');await fill('third','Third question?');
+ const text=editors.lastChild.innerText;assert(/Existing draft\.[\s\S]*First question\?[\s\S]*Second question\?[\s\S]*Third question\?/.test(text),'draft overwritten');assert(text.match(/Third/g).length===1,'duplicate');
+});
+await check('a hidden stale input does not hide its visible replacement',async()=>{
+ editors.innerHTML='<textarea id="prompt-textarea" style="display:none">Hidden</textarea><textarea id="prompt-textarea">Visible draft.</textarea>';
+ assert((await fill('visible','Replacement?')).ok,'not found');assert(editors.lastChild.value.includes('Replacement?'),'wrong editor');assert(editors.firstChild.value==='Hidden','hidden editor changed');
+});
+await check('a composer ID on a wrapper resolves to its writable descendant',async()=>{
+ editors.innerHTML='<div id="prompt-textarea"><div contenteditable="true">Wrapper draft.</div></div>';
+ assert((await fill('wrapper','Question?')).ok,'wrapper failed');assert(editors.querySelector('[contenteditable]').innerText.includes('Question?'),'not inserted');
+});
+await check('a temporarily missing composer mounts without needing a page refresh',async()=>{
+ editors.replaceChildren();const pending=fill('mounted','Delayed question?');setTimeout(()=>{editors.innerHTML='<textarea aria-label="询问 ChatGPT">Mounted draft.</textarea>'},160);
+ assert((await pending).ok,'did not recover');assert(editors.firstChild.value.includes('Delayed question?'),'not inserted');
+});
+await check('changing the conversation during recovery never inserts into the new chat',async()=>{
+ editors.replaceChildren();const pending=fill('wrong-destination','Do not insert');setTimeout(()=>{fixtureURL='https://chatgpt.com/c/other';editors.innerHTML='<textarea aria-label="询问 ChatGPT">Other draft.</textarea>'},60);
+ assert(!(await pending).ok,'wrong chat accepted');assert(editors.firstChild.value==='Other draft.','wrong chat changed');fixtureURL='https://chatgpt.com/c/test';
+});
+await check('ambiguous unrelated textboxes are left untouched',async()=>{
+ editors.innerHTML='<textarea>Edit old message</textarea><div contenteditable="true">Another editor</div>';
+ assert(!(await ask({type:'probe_composer',expectedKey:fixtureURL})).ready,'guessed wrong editor');
+});
+await check('idle heartbeats perform no DOM searches or layout reads',async()=>{
+ let queries=0;const original=document.querySelectorAll;document.querySelectorAll=function(...args){queries++;return original.apply(this,args)};
+ try{for(const fn of heartbeats)fn();assert(queries===0,'idle DOM polling remains')}finally{document.querySelectorAll=original}
+});
+await check('reinjection keeps one receiver and its insertion deduplication',async()=>{
+ editors.innerHTML='<textarea aria-label="询问 ChatGPT">Keep draft.</textarea>';await fill('dedup','Once?');await install();await fill('dedup','Once?');
+ assert(listeners.size===1,'multiple receivers');assert(editors.firstChild.value.match(/Once/g).length===1,'duplicate after injection');
+});
+document.title=`${results.querySelector('.fail')?'FAIL':'PASS'} ${results.querySelectorAll('.pass').length}/9 Composer recovery`;
+</script>

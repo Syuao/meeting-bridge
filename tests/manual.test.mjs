@@ -5,13 +5,13 @@ import {translationCandidates} from '../extension/translation.js';
 import fs from 'node:fs/promises';
 const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
 const pause=()=>new Promise(resolve=>setTimeout(resolve,20));
-function setup({send,history,config,inject,tabUrl}={}){
-  let listener;const messages=[],native=[],injections=[];
+function setup({send,history,config,inject,tabUrl,receiverVersion='0.7.1'}={}){
+  let listener;const messages=[],native=[],injections=[],broadcasts=[];
   const target={tabId:7,url:'https://chatgpt.com/c/existing',title:'Existing'};
   const storage={config:{streamingVersion:1,manualVersion:1,questionMode:'manual',autoFill:false,...config},target,history};
-  const chrome={storage:{local:{async get(){return structuredClone(storage)},async set(data){Object.assign(storage,structuredClone(data))}},session:{async get(){return {}}}},runtime:{onMessage:{addListener(fn){listener=fn}},async sendMessage(){},connectNative(){return {onMessage:{addListener(){}},onDisconnect:{addListener(){}},postMessage(msg){native.push(msg)}}}},sidePanel:{async setPanelBehavior(){}},scripting:{async executeScript(details){injections.push(details);await inject?.(details)}},tabs:{async get(id){return {id,url:tabUrl||(id===7?target.url:'https://chatgpt.com/c/new'),title:'Chat'}},async sendMessage(id,msg){messages.push(msg);return send?send(msg):{ok:true,appended:true}},onUpdated:{addListener(){}},onRemoved:{addListener(){}}}};
+  const chrome={storage:{local:{async get(){return structuredClone(storage)},async set(data){Object.assign(storage,structuredClone(data))}},session:{async get(){return {}}}},runtime:{onMessage:{addListener(fn){listener=fn}},async sendMessage(msg){broadcasts.push(structuredClone(msg))},connectNative(){return {onMessage:{addListener(){}},onDisconnect:{addListener(){}},postMessage(msg){native.push(msg)}}}},sidePanel:{async setPanelBehavior(){}},scripting:{async executeScript(details){injections.push(details);await inject?.(details)}},tabs:{async get(id){return {id,url:tabUrl||(id===7?target.url:'https://chatgpt.com/c/new'),title:'Chat'}},async sendMessage(id,msg){if(msg.type==='probe_composer')return {version:receiverVersion,ready:true};messages.push(msg);return send?send(msg):{ok:true,appended:true}},onUpdated:{addListener(){}},onRemoved:{addListener(){}}}};
   vm.runInNewContext(code,{translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console});
-  return {messages,native,storage,injections,call:(msg,sender={})=>new Promise(resolve=>{if(listener(msg,sender,resolve)===false)resolve({blocked:true})})};
+  return {messages,native,storage,injections,broadcasts,call:(msg,sender={})=>new Promise(resolve=>{if(listener(msg,sender,resolve)===false)resolve({blocked:true})})};
 }
 test('manual selections work after capture stops, never send, and repeated clicks do not duplicate',async()=>{
   const app=setup();await app.call({type:'config',value:{autoSend:true,autoFill:true}});
@@ -76,4 +76,27 @@ test('a target moved off ChatGPT never receives content injection or draft text'
   const result=await app.call({type:'fill_selection',id:'manual-moved',text:'Question?'});
   assert.equal(result.status,'waiting');assert.match(result.message,/重新绑定/);
   assert.equal(app.injections.length,0);assert.equal(app.messages.length,0);
+});
+
+test('an existing old receiver upgrades before filling without refreshing the conversation',async()=>{
+ const app=setup({receiverVersion:'0.6.0'});
+ await app.call({type:'fill_selection',id:'manual-upgrade',text:'First?'});
+ await app.call({type:'fill_selection',id:'manual-next',text:'Second?'});
+ assert.equal(app.injections.length,1);assert.equal(app.injections[0].target.tabId,7);
+ assert.deepEqual(app.messages.map(m=>m.text),['First?','Second?']);
+});
+test('an unchanged blocked queue does not repeatedly broadcast and save all history',async()=>{
+ const app=setup({send:()=>({ok:false,message:'Input not ready'})});
+ await app.call({type:'fill_selection',id:'manual-wait',text:'Question?'});
+ const count=app.broadcasts.length;
+ for(let i=0;i<5;i++){await app.call({type:'composer_ready'},{tab:{id:7}});await pause();}
+ assert.equal(app.broadcasts.length,count);assert.equal(app.messages.length,6);
+});
+
+test('checking the input reconnects an outdated receiver without adding any draft text',async()=>{
+ const app=setup({receiverVersion:'0.6.0'});const result=await app.call({type:'check_composer'});
+ assert.equal(result.ok,true);assert.equal(app.messages.length,0);assert.equal(app.injections.length,1);
+ assert.equal((await app.call({type:'get_state'})).questions.length,0);
+ const moved=setup({tabUrl:'https://chatgpt.com/c/different'});
+ assert.match((await moved.call({type:'check_composer'})).error,/重新绑定/);assert.equal(moved.injections.length,0);
 });

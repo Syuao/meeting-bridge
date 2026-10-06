@@ -5,7 +5,8 @@ import {writeClipboard} from './clipboard.js';
 import {translationText,translationPending} from './translation.js';
 const $=id=>document.getElementById(id);
 const api=async msg=>{const result=await chrome.runtime.sendMessage(msg);if(result?.error)throw new Error(result.error);return result;};
-const time=at=>new Date(at).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+const clockFormat=new Intl.DateTimeFormat('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+const time=at=>Number.isFinite(at)?clockFormat.format(at):'';
 let state,view='transcripts',renderedView='',questionSignature='',transcriptSignature='',historyStart=null,questionLimit=200;
 let setupInitialized=false,asrSetupInitialized=false,toastTimer,fontTimer,pendingFont=null;
 let selectionId=null,selectionRange=null,selectionBusy=false,draggingText=false,gestureStarted=false,autoTimer=null;
@@ -68,7 +69,7 @@ function clearSelection({resume=true}={}){
   $('selectionTray').hidden=true;$('selectedText').hidden=true;$('selectedText').value='';
   $('selectionTray').classList.remove('editing');window.getSelection()?.removeAllRanges();
   if(resume&&resumeFollowing)followLive=true;resumeFollowing=false;
-  questionSignature='';if(state)render(state);
+  questionSignature='';transcriptSignature='';if(state)render(state);
 }
 function readSelection({automatic=false}={}){
   if(draggingText||document.activeElement?.closest('#selectionTray'))return;
@@ -134,23 +135,28 @@ window.addEventListener('resize',positionSelection);
 function renderTranscripts(){
   const rows=transcriptRows(state),feed=$('feed');
   if(historyStart===null||historyStart>rows.length)historyStart=Math.max(0,rows.length-200);
+  // Bound the live DOM without removing saved history. Scrolling/selecting keeps
+  // the current window stable; older paragraphs remain available on demand.
+  if(followLive&&!hasSelection())historyStart=Math.max(0,rows.length-200);
   $('older').hidden=historyStart===0;
   if(draggingText)return;
-  const signature=JSON.stringify([historyStart,state.running,state.config.translationEnabled,selectionId,rows]);
+  const visible=rows.slice(historyStart);
+  const signature=JSON.stringify([historyStart,state.running,state.config.translationEnabled,visible]);
   if(signature===transcriptSignature)return;transcriptSignature=signature;
-  const visible=rows.slice(historyStart),ids=new Set(visible.map(row=>row.id));
+  const ids=new Set(visible.map(row=>row.id));
   for(const [id,node] of transcriptNodes){if(!ids.has(id)&&!protect(node)){node.remove();transcriptNodes.delete(id);}}
   if(!visible.length){if(!feed.querySelector('.empty')){feed.replaceChildren();const empty=document.createElement('div');empty.className='empty';empty.innerHTML='<strong>声音会接成一篇正文</strong>开始监听后，直接划出需要的问题。<br>旧文字保留在这里，可以向上翻。';feed.append(empty);}return;}
   feed.querySelector('.empty')?.remove();
-  const anchor=!followLive?[...feed.children].find(node=>node.getBoundingClientRect().bottom>feed.getBoundingClientRect().top):null;
+  const feedTop=followLive?0:feed.getBoundingClientRect().top;
+  const anchor=!followLive?[...feed.children].find(node=>node.getBoundingClientRect().bottom>feedTop):null;
   const anchorTop=anchor?.getBoundingClientRect().top;
   let cursor=feed.firstElementChild;
   for(let i=0;i<visible.length;i++){
     const row=visible[i];let node=transcriptNodes.get(row.id);
     if(!node){node=document.createElement('div');node.className='stream-paragraph';node.dataset.id=row.id;const stamp=document.createElement('div');stamp.className='time-break';const text=document.createElement('div');text.className='entry-text';const translated=document.createElement('div');translated.className='translation-text';node.append(stamp,text,translated);transcriptNodes.set(row.id,node);}
     const [stamp,text,translated]=node.children;
-    const previous=rows[historyStart+i-1];stamp.hidden=!!previous&&Math.abs(row.at-previous.at)<120000;if(stamp.textContent!==time(row.at))stamp.textContent=time(row.at);
-    node.classList.toggle('live',row.final===false&&state.running);node.title=row.final===false?(state.running?'这段文字仍在修订':'未确认的末段'):time(row.at);
+    const previous=rows[historyStart+i-1],stampText=time(row.at);stamp.hidden=!!previous&&Math.abs(row.at-previous.at)<120000;if(stamp.textContent!==stampText)stamp.textContent=stampText;
+    node.classList.toggle('live',row.final===false&&state.running);node.title=row.final===false?(state.running?'这段文字仍在修订':'未确认的末段'):stampText;
     if(text.textContent!==row.text&&!protect(text))text.textContent=row.text;
     if(!protect(node)){
       const chinese=translationText(row),pending=translationPending(row);
@@ -229,6 +235,7 @@ function render(next){
 async function refreshTabs(){const tabs=await api({type:'get_tabs'});$('tabs').replaceChildren();if(!tabs.length)$('tabs').append(new Option('请先打开 ChatGPT、DeepSeek 或千问网页',''));for(const tab of tabs)$('tabs').append(new Option(`[${tab.provider||'对话'}] ${tab.title||tab.url}`,tab.id));if(state?.target&&tabs.some(tab=>tab.id===state.target.tabId))$('tabs').value=String(state.target.tabId);}
 for(const [id,type] of [['start','start'],['stop','stop'],['wide','open_panel']])$(id).onclick=()=>api({type}).catch(e=>toast(e.message));
 $('refresh').onclick=()=>refreshTabs().catch(e=>toast(e.message));
+$('reconnect').onclick=()=>api({type:'check_composer'}).then(result=>toast(result.message)).catch(e=>toast(e.message));
 $('bind').onclick=()=>{if(!$('tabs').value){toast('请先打开支持的对话网页');return;}api({type:'bind',tabId:Number($('tabs').value)}).catch(e=>toast(e.message));};
 for(const key of ['autoFill','autoSend','confirmSelection','translationEnabled','language','source','questionMode','translationProvider','hotwords','asrModel'])$(key).onchange=()=>{if(key==='confirmSelection')cancelAuto();api({type:'config',value:{[key]:['autoFill','autoSend','confirmSelection','translationEnabled'].includes(key)?$(key).checked:$(key).value}}).catch(e=>toast(e.message));};
 function setFont(value){
@@ -261,7 +268,11 @@ $('retryCopy').onclick=async()=>{
   if(selectionCopy===record){$('retryCopy').hidden=ok;selectionNotice=ok?'已重新复制，可按 ⌘V 粘贴；未重复填入。':'复制仍未成功，请重新划选或按 ⌘C。';renderDelivery();}
 };
 $('clear').onclick=()=>{if(confirm('永久清空本机保存的全部转写和问题历史？')){selectionNotice='';lastSelectionId=null;clearSelection();historyStart=0;api({type:'clear'});}};
-chrome.runtime.onMessage.addListener(msg=>{if(msg.type==='state')render(msg.state);});
+chrome.runtime.onMessage.addListener(msg=>{
+  if(msg.type==='state')render(msg.state);
+  // Meter ticks must not serialize, format or lay out the transcript history.
+  if(msg.type==='level'&&state){state.level=msg.value;$('level').style.width=Math.round(msg.value*100)+'%';}
+});
 $('saveKey').onclick=async()=>{try{await api({type:'configure_api',provider:'deepseek',key:$('apiKey').value});$('apiKey').value='';toast('已提交本机保存');}catch(e){toast(e.message)}};
 $('testApi').onclick=()=>api({type:'test_api',provider:'deepseek'}).catch(e=>toast(e.message));$('retryApi').onclick=()=>api({type:'retry_api'});
 $('saveAsr').onclick=async()=>{try{await api({type:'configure_asr',key:$('asrKey').value,region:$('asrRegion').value});$('asrKey').value='';toast('已提交本机保存');}catch(e){toast(e.message);}};
