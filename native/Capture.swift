@@ -33,6 +33,8 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
     var piece = 0
     var lastOCR = Date.distantPast
     var timer: Timer?
+    var exclusionTask: Task<Void, Never>?
+    var excludedBundleIDs = ""
     var window: NSWindow!
     var label: NSTextField!
     var level: NSProgressIndicator!
@@ -54,7 +56,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 200), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Meeting Bridge · 声音采集"
         window.center()
-        let title = NSTextField(labelWithString: source == "tencent-text" ? "读取腾讯实时转写" : source == "all" ? "系统声音" : "腾讯会议声音")
+        let title = NSTextField(labelWithString: source == "tencent-text" ? "读取腾讯实时转写" : source == "all" ? "系统声音" : source == "other" ? "其他系统声音（排除腾讯会议）" : "腾讯会议声音")
         title.font = .systemFont(ofSize: 22, weight: .semibold)
         title.frame = NSRect(x: 26, y: 142, width: 405, height: 30)
         label = NSTextField(wrappingLabelWithString: "正在准备声音共享…")
@@ -100,13 +102,18 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
                 return
             }
             guard let display = content.displays.first else { throw NSError(domain: "MeetingBridge", code: 1, userInfo: [NSLocalizedDescriptionKey: "没有可用的显示器"] ) }
+            let tencentApps = content.applications.filter { Self.isTencent($0.bundleIdentifier) }
             let filter: SCContentFilter
             if source == "all" {
                 filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+            } else if source == "other" {
+                // This is deliberately an application-level exclusion. It keeps Tencent audio
+                // out even when the user shares a recording whose speakers are mixed together.
+                excludedBundleIDs = tencentApps.compactMap(\.bundleIdentifier).sorted().joined(separator: ",")
+                filter = SCContentFilter(display: display, excludingApplications: tencentApps, exceptingWindows: [])
             } else {
-                let apps = content.applications.filter { $0.bundleIdentifier == "com.tencent.meeting" || $0.bundleIdentifier.hasPrefix("com.tencent.meeting.") }
-                guard !apps.isEmpty else { throw NSError(domain: "MeetingBridge", code: 2, userInfo: [NSLocalizedDescriptionKey: "请先打开腾讯会议，再从扩展点击开始。"] ) }
-                filter = SCContentFilter(display: display, including: apps, exceptingWindows: [])
+                guard !tencentApps.isEmpty else { throw NSError(domain: "MeetingBridge", code: 2, userInfo: [NSLocalizedDescriptionKey: "请先打开腾讯会议，再从扩展点击开始。"] ) }
+                filter = SCContentFilter(display: display, including: tencentApps, exceptingWindows: [])
             }
             let config = SCStreamConfiguration()
             config.width = 2; config.height = 2
@@ -122,12 +129,36 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
             // No screen output is attached: screen images are neither consumed nor saved.
             stream = next
             try await next.startCapture()
+            if source == "other" { startExclusionMonitor(display: display) }
             if stopping { try? await next.stopCapture(); return }
             queue.async { self.emit(["type": "capture_started", "source": self.source]) }
             await MainActor.run { self.label.stringValue = "正在监听。转写和问题显示在 Chrome 扩展中。\n此窗口可最小化；关闭窗口会停止采集。" }
         } catch {
             queue.async { self.emit(["type": "error", "message": error.localizedDescription]) }
             await MainActor.run { self.label.stringValue = "无法开始：\(error.localizedDescription)\n若刚授权，请停止后重新开始。" }
+        }
+    }
+    static func isTencent(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return bundleID == "com.tencent.meeting" || bundleID.hasPrefix("com.tencent.meeting.")
+    }
+    func startExclusionMonitor(display: SCDisplay) {
+        exclusionTask?.cancel()
+        exclusionTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled && !self.stopping {
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { break }
+                guard !self.stopping else { break }
+                let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                let apps = content?.applications.filter { Self.isTencent($0.bundleIdentifier) } ?? []
+                let ids = apps.compactMap(\.bundleIdentifier).sorted().joined(separator: ",")
+                guard ids != self.excludedBundleIDs else { continue }
+                self.excludedBundleIDs = ids
+                let next = SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: [])
+                await withCheckedContinuation { continuation in
+                    self.stream?.updateContentFilter(next) { _ in continuation.resume() }
+                }
+            }
         }
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -234,6 +265,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
     func stop() async {
         guard !stopping else { return }; stopping = true
         timer?.invalidate()
+        exclusionTask?.cancel(); exclusionTask = nil
         try? await stream?.stopCapture()
         queue.sync {
             if streamPCM && !pcm.isEmpty {

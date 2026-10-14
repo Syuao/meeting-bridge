@@ -83,7 +83,7 @@ function finishCloud(){
 async function start(options) {
   stop('准备启动…');
   const mine = ++generation;
-  const source=['tencent','tencent-text','aliyun-all','aliyun-tencent'].includes(options.source)?options.source:'all';
+  const source=['tencent','tencent-text','aliyun-all','aliyun-tencent','aliyun-other'].includes(options.source)?options.source:'all';
   const useCloud=source.startsWith('aliyun-');
   let cloudConfig;if(useCloud){try{cloudConfig=readASRConfig(root);selectedASRModel=asrModel(options.asrModel,cloudConfig.region).id;}catch(e){asrState('error',e.message);info('error',e.message);return;}}
   mode=['semantic','rules'].includes(options.questionMode)?options.questionMode:'manual';
@@ -108,7 +108,7 @@ async function start(options) {
         else if(mode==='rules'&&row.final)for(const found of questions.push(row.text,{final:true}))question(found,{detection:'sentence-rules'});
       }
     },onError:e=>{if(mine===generation){stop(e.message);asrState('error',e.message);info('error',e.message);}}});
-    launchCapture(sessionDir,source==='aliyun-all'?'all':'tencent',mine,true);
+    launchCapture(sessionDir,source==='aliyun-all'?'all':source==='aliyun-other'?'other':'tencent',mine,true);
     if(mode==='semantic')semanticState(hasKey(root)?'ready':'unconfigured',hasKey(root)?'DeepSeek 识别待命':'实时转写可用；配置 DeepSeek API 后可自动识别问题。');
   }
   else if(source==='tencent-text'){launchCapture(sessionDir,source,mine);semanticState(hasKey(root)?'ready':'unconfigured',hasKey(root)?'DeepSeek 识别待命':'先读取实时转写；配置 DeepSeek API 后可自动识别问题。');}
@@ -161,7 +161,7 @@ async function start(options) {
             const client=cloud;info('loading','正在连接阿里云实时转写…');asrState('connecting','正在建立语音连接…');lastPCM=Date.now();
             void client.start().then(()=>{
               if(mine!==generation||stopping)return;
-              info('listening',`${source==='aliyun-all'?'正在监听系统声音':'正在监听腾讯会议声音'} · ${asrModel(selectedASRModel).name}`);asrState('ready',`${asrModel(selectedASRModel).name}已连接，正在实时转写`);
+              info('listening',`${source==='aliyun-all'?'正在监听系统声音':source==='aliyun-other'?'正在监听除腾讯会议外的其他系统声音':'正在监听腾讯会议声音'} · ${asrModel(selectedASRModel).name}`);asrState('ready',`${asrModel(selectedASRModel).name}已连接，正在实时转写`);
               heartbeat=setInterval(()=>{if(mine===generation&&!stopping&&Date.now()-lastPCM>300)client.push(Buffer.alloc(3200));},100);
             }).catch(e=>{if(mine===generation){stop(e.message);info('error',e.message);}});
           }else info('listening',source==='tencent-text'?'正在读取腾讯会议右侧实时转写':source==='all'?'正在监听系统声音 · 本机转写':'正在监听腾讯会议声音 · 本机转写');
@@ -229,4 +229,4 @@ process.stdin.on('data',data=> {
 process.stdin.on('end',()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
 process.stdout.on('error',()=>process.exit(0));
 for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
-send({type:'hello',version:'0.7.1',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});
+send({type:'hello',version:'0.8.0',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});

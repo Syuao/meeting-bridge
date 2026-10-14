@@ -5,7 +5,7 @@ import {translationCandidates} from '../extension/translation.js';
 import fs from 'node:fs/promises';
 const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
 const pause=()=>new Promise(resolve=>setTimeout(resolve,20));
-function setup({send,history,config,inject,tabUrl,receiverVersion='0.7.1'}={}){
+function setup({send,history,config,inject,tabUrl,receiverVersion='0.8.0'}={}){
   let listener;const messages=[],native=[],injections=[],broadcasts=[];
   const target={tabId:7,url:'https://chatgpt.com/c/existing',title:'Existing'};
   const storage={config:{streamingVersion:1,manualVersion:1,questionMode:'manual',autoFill:false,...config},target,history};

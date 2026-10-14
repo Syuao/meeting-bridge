@@ -4,7 +4,16 @@ import {transcriptRows} from './transcript.js';
 import {writeClipboard} from './clipboard.js';
 import {translationText,translationPending} from './translation.js';
 const $=id=>document.getElementById(id);
-const api=async msg=>{const result=await chrome.runtime.sendMessage(msg);if(result?.error)throw new Error(result.error);return result;};
+let sessionId='';
+const rawApi=async msg=>{const result=await chrome.runtime.sendMessage(msg);if(result?.error)throw new Error(result.error);return result;};
+const api=async msg=>rawApi({...msg,sessionId});
+async function initSession(){
+  const explicit=new URLSearchParams(location.search).get('session');
+  const win=chrome.windows?.getCurrent?await chrome.windows.getCurrent():null;
+  const context=await rawApi({type:'session_context',sessionId:explicit||undefined,windowId:win?.id});
+  sessionId=context.sessionId;
+  return context;
+}
 const clockFormat=new Intl.DateTimeFormat('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 const time=at=>Number.isFinite(at)?clockFormat.format(at):'';
 let state,view='transcripts',renderedView='',questionSignature='',transcriptSignature='',historyStart=null,questionLimit=200;
@@ -269,13 +278,13 @@ $('retryCopy').onclick=async()=>{
 };
 $('clear').onclick=()=>{if(confirm('永久清空本机保存的全部转写和问题历史？')){selectionNotice='';lastSelectionId=null;clearSelection();historyStart=0;api({type:'clear'});}};
 chrome.runtime.onMessage.addListener(msg=>{
-  if(msg.type==='state')render(msg.state);
+  if(msg.type==='state'&&msg.sessionId===sessionId)render(msg.state);
   // Meter ticks must not serialize, format or lay out the transcript history.
-  if(msg.type==='level'&&state){state.level=msg.value;$('level').style.width=Math.round(msg.value*100)+'%';}
+  if(msg.type==='level'&&msg.sessionId===sessionId&&state){state.level=msg.value;$('level').style.width=Math.round(msg.value*100)+'%';}
 });
 $('saveKey').onclick=async()=>{try{await api({type:'configure_api',provider:'deepseek',key:$('apiKey').value});$('apiKey').value='';toast('已提交本机保存');}catch(e){toast(e.message)}};
 $('testApi').onclick=()=>api({type:'test_api',provider:'deepseek'}).catch(e=>toast(e.message));$('retryApi').onclick=()=>api({type:'retry_api'});
 $('saveAsr').onclick=async()=>{try{await api({type:'configure_asr',key:$('asrKey').value,region:$('asrRegion').value});$('asrKey').value='';toast('已提交本机保存');}catch(e){toast(e.message);}};
 $('testAsr').onclick=()=>api({type:'test_asr'}).catch(e=>toast(e.message));
 $('retryTranslation').onclick=()=>api({type:'translation_retry'}).catch(e=>toast(e.message));
-render(await api({type:'get_state'}));await refreshTabs();if(state.config.questionMode==='semantic'||(state.config.translationEnabled&&state.config.translationProvider==='deepseek'))await api({type:'api_status'});await api({type:'asr_status'});
+await initSession();render(await api({type:'get_state'}));await refreshTabs();if(state.config.questionMode==='semantic'||(state.config.translationEnabled&&state.config.translationProvider==='deepseek'))await api({type:'api_status'});await api({type:'asr_status'});
