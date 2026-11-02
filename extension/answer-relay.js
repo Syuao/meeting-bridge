@@ -25,13 +25,16 @@ export function createAnswerRelay({chrome, sites, sessionId, getTarget, getConfi
     }));
   }
   async function runEditor(room, action, data={}, expectedGeneration=generation) {
-    const tab = await chrome.tabs.get(room.tabId);
-    if(action==='write' && (!active || expectedGeneration!==generation))throw Error('同步模式已变化，已取消待写入内容');
-    if (roomKey(tab.url) !== room.key) throw Error('ShareCode 房间已切换，请重新绑定');
-    const result = await chrome.scripting.executeScript({target:{tabId:room.tabId},world:'MAIN',func:shareCodeEditor,args:[{action,roomKey:room.key,documentToken:room.documentToken,...data}]});
-    const value = result?.[0]?.result;
-    if (!value?.ok) throw Error(value?.message || '无法连接 ShareCode 编辑器');
-    return value;
+    for(let attempt=0;;attempt++){
+      const tab = await chrome.tabs.get(room.tabId);
+      if(action==='write' && (!active || expectedGeneration!==generation))throw Error('同步模式已变化，已取消待写入内容');
+      if (roomKey(tab.url) !== room.key) throw Error('ShareCode 房间已切换，请重新绑定');
+      const result = await chrome.scripting.executeScript({target:{tabId:room.tabId},world:'MAIN',func:shareCodeEditor,args:[{action,roomKey:room.key,documentToken:room.documentToken,...data}]});
+      const value = result?.[0]?.result;
+      if(value?.ok)return value;
+      if(value?.retryable&&attempt<7){await new Promise(resolve=>setTimeout(resolve,150));continue;}
+      throw Error(value?.message || '无法连接 ShareCode 编辑器');
+    }
   }
   function sourceConfig() {
     const target=getTarget(), c=config();
@@ -57,27 +60,22 @@ export function createAnswerRelay({chrome, sites, sessionId, getTarget, getConfi
     const target=getTarget();
     if(target) await chrome.tabs.sendMessage(target.tabId,{type:'answer_relay_config',enabled:false}).catch(()=>{});
   }
-  async function bind(tabId, taken) {
+  async function bind(tabId, taken, {automatic=!!config().automatic}={}) {
     const tab=await chrome.tabs.get(Number(tabId)), key=roomKey(tab.url);
     if (!key) throw Error('请选择 kode666.com 的 ShareCode 房间');
     if (await taken(key)) throw Error('此 ShareCode 房间已绑定到另一个窗口，请先在原窗口解除绑定');
     const room={tabId:tab.id,url:tab.url,key,title:tab.title};
     room.documentToken=(await runEditor(room,'probe')).documentToken;
     await suspend();
-    await saveConfig({room,automatic:!!config().automatic,epoch:crypto.randomUUID()});
+    await saveConfig({room,automatic:!!automatic,epoch:crypto.randomUUID()});
     active=true;
     try { await connectSource(); report('ready',config().automatic?'自动同步已开启，等待新回答':'划选同步已就绪：在回答中划词，松手即誊写'); }
     catch(e) { await suspend(e.message); throw e; }
     return {ok:true};
   }
   async function setMode(automatic) {
-    await suspend();
-    await saveConfig({...config(),automatic:!!automatic,epoch:crypto.randomUUID()});
-    if(!config().room) { report('unbound','先绑定 ShareCode 房间'); return {ok:true}; }
-    active=true;
-    try { const probe=await runEditor(config().room,'probe'); if(probe.documentToken!==config().room.documentToken)throw Error('ShareCode 页面已重新加载，请点击「绑定 / 重连」'); await connectSource(); report('ready',automatic?'自动同步已开启，等待新回答':'划选同步已就绪：生成中也可以划词誊写'); }
-    catch(e) {await suspend(e.message);throw e;}
-    return {ok:true};
+    if(config().room)return bind(config().room.tabId,async()=>false,{automatic});
+    await saveConfig({...config(),automatic:!!automatic});report('unbound','先选择 ShareCode 房间');return {ok:true};
   }
   async function drain() {
     if(draining)return;

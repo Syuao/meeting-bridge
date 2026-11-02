@@ -2,6 +2,14 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.9.3
+
+- All 114 Node tests pass. New cases cover either binding button connecting both selected endpoints, enabling automatic mode after navigation, and refreshing the room document token without a second reconnect.
+- Markdown tests use real ProseMirror schema/state/transactions. Partial updates replace the same answer paragraph, explicit newlines and indentation survive, later selections append, unrelated preceding edits are retained, and manual edits to an owned paragraph stop updates.
+- Authenticated Chrome loaded 0.9.3. In a real ShareCode Markdown room, toggling automatic mode alone connected both endpoints and passed the health check. With automatic mode off, selecting a neutral sentence in ChatGPT visibly appended it to the Markdown editor. That test append was undone. Automatic mode was restored without pressing either binding button.
+- Markdown uses a separate Milkdown/ProseMirror editor rather than Monaco. Switching editor families during an existing answer pauses that answer to avoid duplicating it; reconnect before a new answer/selection. A live generated Markdown answer was not repeated in this validation; streaming behavior was exercised with real ProseMirror transactions in tests.
+- Only extension code and development dependencies changed. The installed audio helper and recording permissions were not modified.
+
 ## Version 0.9.2
 
 - All 109 Node tests pass. New cases cover rebinding after same-tab conversation/room navigation with a stale sender document URL, list items containing paragraph/div wrappers, and Monaco model replacement with both unchanged and changed content.

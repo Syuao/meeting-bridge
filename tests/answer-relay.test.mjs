@@ -67,3 +67,10 @@ test('connection check verifies both source listener and room without writing an
  await app.relay.bind(8,async()=>false);app.reloadRoom();await assert.rejects(app.relay.check(),/重新加载/);
  assert.equal(app.writes.length,0);assert.equal(app.statuses.at(-1).state,'paused');
 });
+
+test('turning on automatic mode reconnects the current room document in the same action',async()=>{
+ const app=setup();await app.relay.bind(8,async()=>false);app.reloadRoom();
+ await app.relay.setMode(true);assert.equal(app.relay.sourceConfig().enabled,true);
+ assert.equal(app.config().room.documentToken,'document-2');assert.equal((await app.send('Partial live answer')).ok,true);
+ assert.equal(app.writes.length,1);
+});

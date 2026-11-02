@@ -219,10 +219,10 @@ async function refreshRooms(){
   const bound=state?.config.answerRelay?.room;if(bound&&rooms.some(r=>r.id===bound.tabId))$('relayRooms').value=String(bound.tabId);
 }
 $('relayRefresh').onclick=()=>refreshRooms().catch(e=>toast(e.message));
-$('relayBind').onclick=()=>{const tabId=Number($('relayRooms').value);if(!tabId){toast('请先打开并选择 ShareCode 房间');return;}api({type:'relay_bind',tabId}).catch(e=>toast(e.message));};
+$('relayBind').onclick=()=>{const tabId=Number($('relayRooms').value);if(!tabId){toast('请先打开并选择 ShareCode 房间');return;}api({type:'relay_bind',tabId,targetTabId:Number($('tabs').value)}).catch(e=>toast(e.message));};
 $('relayUnbind').onclick=()=>api({type:'relay_unbind'}).catch(e=>toast(e.message));
 $('relayCheck').onclick=()=>api({type:'relay_check'}).catch(e=>toast(e.message));
-$('relayAutomatic').onchange=()=>api({type:'relay_mode',automatic:$('relayAutomatic').checked}).catch(e=>toast(e.message));
+$('relayAutomatic').onchange=()=>api({type:'relay_mode',automatic:$('relayAutomatic').checked,targetTabId:Number($('tabs').value),roomTabId:Number($('relayRooms').value)}).catch(e=>toast(e.message));
 function render(next){
   state=next;renderRelay();if(!setupInitialized){$('setup').open=!state.target;setupInitialized=true;}
   $('status').textContent=({stopped:'已停止',stopping:'保存末段',loading:'正在连接',permission:'准备采集',listening:'监听中',error:'需要处理'})[state.status]||'准备就绪';
@@ -265,7 +265,7 @@ async function refreshTabs(){const tabs=await api({type:'get_tabs'});$('tabs').r
 for(const [id,type] of [['start','start'],['stop','stop'],['wide','open_panel']])$(id).onclick=()=>api({type}).catch(e=>toast(e.message));
 $('refresh').onclick=()=>refreshTabs().catch(e=>toast(e.message));
 $('reconnect').onclick=()=>api({type:'check_composer'}).then(result=>toast(result.message)).catch(e=>toast(e.message));
-$('bind').onclick=()=>{if(!$('tabs').value){toast('请先打开支持的对话网页');return;}api({type:'bind',tabId:Number($('tabs').value)}).catch(e=>toast(e.message));};
+$('bind').onclick=()=>{if(!$('tabs').value){toast('请先打开支持的对话网页');return;}api({type:'bind',tabId:Number($('tabs').value),roomTabId:Number($('relayRooms').value)}).catch(e=>toast(e.message));};
 for(const key of ['autoFill','autoSend','confirmSelection','translationEnabled','language','source','questionMode','translationProvider','hotwords','asrModel'])$(key).onchange=()=>{if(key==='confirmSelection')cancelAuto();api({type:'config',value:{[key]:['autoFill','autoSend','confirmSelection','translationEnabled'].includes(key)?$(key).checked:$(key).value}}).catch(e=>toast(e.message));};
 function setFont(value){
   const size=Math.max(10,Math.min(32,Math.round(value)));if(!Number.isFinite(size))return;

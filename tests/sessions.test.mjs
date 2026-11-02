@@ -59,3 +59,16 @@ test('rebind after same-tab conversation and room navigation uses the live URLs,
  assert.equal((await app.call({type:'answer_source_ready',pageUrl:old},sender)).config.enabled,false);
  const state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.transcripts[0].text,'Keep');assert.match(state.config.answerRelay.room.url,/room\/next/);
 });
+
+test('either binding button connects both dropdown choices, and the auto toggle reconnects a changed conversation',async()=>{
+ const app=load({target:{tabId:7,url:'https://chatgpt.com/c/test'}});
+ await app.call({type:'session_context',windowId:10});
+ assert.equal((await app.call({type:'bind',sessionId:'legacy',tabId:7,roomTabId:8})).ok,true);
+ let state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.answerRelayStatus.state,'ready');
+ const next='https://chatgpt.com/c/next';app.navigate(7,next);
+ assert.equal((await app.call({type:'relay_bind',sessionId:'legacy',tabId:8,targetTabId:7})).ok,true);
+ state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.target.url,next);assert.equal(state.answerRelayStatus.state,'ready');
+ const last='https://chatgpt.com/c/last';app.navigate(7,last);
+ assert.equal((await app.call({type:'relay_mode',sessionId:'legacy',automatic:true,targetTabId:7,roomTabId:8})).ok,true);
+ state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.target.url,last);assert.equal(state.config.answerRelay.automatic,true);assert.equal(state.answerRelayStatus.state,'ready');
+});

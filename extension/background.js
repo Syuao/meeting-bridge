@@ -17,7 +17,7 @@ function writeMeetingSession(sessionId,record){
 }
 async function createSession(sessionId,seed=null,windowId=null){if(sessions.has(sessionId)){const s=sessions.get(sessionId);if(windowId!=null)s.setWindowId(windowId);return s}const session=createSessionImpl(sessionId,seed,windowId);sessions.set(sessionId,session);await session.ready;return session}
 function createSessionImpl(sessionId,seed,windowId){
-let port=null, delivering=false, saveTimer;
+let port=null, delivering=false, saveTimer,bindingTask=Promise.resolve();
 async function saveSession(part='all') {
   const record={config:{...state.config,autoSend:false},target:state.target,history:{transcripts:state.transcripts,questions:state.questions},updatedAt:Date.now()};
   if(sessionId==='legacy') {
@@ -125,8 +125,29 @@ const relay=createAnswerRelay({chrome,sites:Sites,sessionId,getTarget:()=>state.
   notify:status=>{state.answerRelayStatus=status;chrome.runtime.sendMessage({type:'relay_status',sessionId,status}).catch(()=>{});}
 });
 initialized.then(()=>relay.restore());
+async function bindPair(msg){
+  const targetId=Number(msg.type==='bind'?msg.tabId:msg.targetTabId||state.target?.tabId);
+  const roomId=Number(msg.type==='relay_bind'?msg.tabId:msg.roomTabId||state.config.answerRelay?.room?.tabId);
+  if(!targetId)throw Error('请先在「填入哪个对话」选择大模型对话');
+  const tab=await chrome.tabs.get(targetId);
+  if(!Sites.site(tab.url))throw Error('请选择 ChatGPT、DeepSeek 或千问标签页');
+  if(await targetTaken(tab.id,key(tab.url),sessionId))throw Error('这个对话已绑定到另一个独立窗口，请选择本窗口的对话。');
+  if(state.config.answerRelay?.room||roomId)await relay.suspend('正在连接所选对话与房间…');
+  if(state.target&&(state.target.tabId!==tab.id||key(state.target.url)!==key(tab.url))){
+    for(const q of state.questions)if(['pending','waiting'].includes(q.status)){q.status='held';q.requested=false;q.detail='旧对话的问题，可手动填入';}
+  }
+  state.target={tabId:tab.id,title:tab.title,url:tab.url,windowId:tab.windowId};
+  await saveSession('target');update(true);void deliver();
+  if(roomId&&Sites.site(tab.url)?.id==='chatgpt')return relay.bind(roomId,key=>roomTaken(key,sessionId),typeof msg.automatic==='boolean'?{automatic:msg.automatic}:{});
+  if(msg.type==='relay_mode')return relay.setMode(msg.automatic);
+  if(msg.type==='relay_bind')throw Error('回答同步目前支持 ChatGPT，请选择 ChatGPT 对话');
+  return {ok:true};
+}
 async function command(msg,sender) {
   await initialized;
+  if(['bind','relay_bind','relay_mode'].includes(msg.type)){
+    const task=bindingTask.then(()=>bindPair(msg));bindingTask=task.catch(()=>{});return task;
+  }
   if(msg.type==='__persist_target'){await saveSession('target');update();return {ok:true};}
   if(msg.type==='__notify'){update();return {ok:true};}
   if(msg.type==='get_state') return state;
@@ -134,8 +155,6 @@ async function command(msg,sender) {
   if(msg.type==='answer_update'||msg.type==='answer_selection')return relay.receive(msg,sender);
   if(msg.type==='relay_rooms')return relay.rooms();
   if(msg.type==='relay_check')return relay.check();
-  if(msg.type==='relay_bind')return relay.bind(msg.tabId,key=>roomTaken(key,sessionId));
-  if(msg.type==='relay_mode')return relay.setMode(msg.automatic);
   if(msg.type==='relay_unbind')return relay.unbind();
   if(msg.type==='check_composer'){
     if(!state.target)throw new Error('请先绑定目标对话。');
@@ -149,7 +168,6 @@ async function command(msg,sender) {
   if(['configure_api','api_status','retry_api','test_api'].includes(msg.type)){connect().postMessage({type:msg.type,provider:msg.provider,...(msg.type==='configure_api'?{key:String(msg.key||'')}: {})});return {ok:true};}
   if(['configure_asr','asr_status','test_asr'].includes(msg.type)){connect().postMessage({type:msg.type,model:state.config.asrModel,...(msg.type==='configure_asr'?{key:String(msg.key||''),region:msg.region}:{})});return {ok:true};}
   if(msg.type==='get_tabs') {const query={url:Sites.matches};if(windowId!=null)query.windowId=windowId;return (await chrome.tabs.query(query)).map(t=>({id:t.id,title:t.title,url:t.url,provider:Sites.site(t.url)?.name}));}
-  if(msg.type==='bind') {const tab=await chrome.tabs.get(Number(msg.tabId));if(!Sites.site(tab.url))throw new Error('请选择 ChatGPT、DeepSeek 或千问标签页');if(await targetTaken(tab.id,key(tab.url),sessionId))throw new Error('这个对话已绑定到另一个独立窗口，请选择本窗口的对话。');if(state.target&&(state.target.tabId!==tab.id||key(state.target.url)!==key(tab.url))){for(const q of state.questions)if(['pending','waiting'].includes(q.status)){q.status='held';q.requested=false;q.detail='旧对话的问题，可手动填入';}}if(state.config.answerRelay?.room)await relay.suspend('大模型绑定已变化，请重新绑定 / 重连 ShareCode');state.target={tabId:tab.id,title:tab.title,url:tab.url,windowId:tab.windowId};await saveSession('target');update(true);void deliver();return {ok:true};}
   if(msg.type==='config') {
     const c=msg.value||{};
     if(Object.hasOwn(c,'asrModel')){

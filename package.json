@@ -1,6 +1,6 @@
 {
   "name": "meeting-bridge-local",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,5 +18,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/Syuao/meeting-bridge.git"
+  },
+  "devDependencies": {
+    "prosemirror-model": "1.25.12",
+    "prosemirror-state": "1.4.4"
   }
 }
