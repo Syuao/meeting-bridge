@@ -233,9 +233,15 @@ async function roomTaken(key,exceptSession){
 }
 async function answerMessage(msg,sender){
   if(sender.frameId>0||!sender.tab?.id||!Sites.site(sender.url||sender.tab.url))return {config:{enabled:false}};
+  // In a single-page app sender.url can still refer to the document's initial
+  // conversation. Validate the live tab and the source's current page together.
+  const tab=await chrome.tabs.get(sender.tab.id);
+  const pageUrl=msg.pageUrl||sender.url||sender.tab.url;
+  if(!Sites.site(tab.url)||Sites.key(pageUrl)!==Sites.key(tab.url))return {config:{enabled:false},ok:false,message:'对话页面已切换，请重新绑定当前对话'};
+  const currentSender={...sender,tab:{...sender.tab,url:tab.url},url:tab.url};
   for(const session of sessions.values()){
     await session.ready;
-    if(session.state.target?.tabId===sender.tab.id&&Sites.key(session.state.target.url)===Sites.key(sender.url||sender.tab.url))return session.command(msg,sender);
+    if(session.state.target?.tabId===sender.tab.id&&Sites.key(session.state.target.url)===Sites.key(tab.url))return session.command(msg,currentSender);
   }
   return {config:{enabled:false},ok:false,message:'请在侧栏绑定并连接 ShareCode'};
 }

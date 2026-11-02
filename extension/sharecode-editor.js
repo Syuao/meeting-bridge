@@ -28,10 +28,40 @@ export function shareCodeEditor(request) {
   if (!model || model.isDisposed?.()) return {ok:false, message:'找不到 ShareCode 编辑器，请打开房间的「编辑器」视图'};
   if (editor.getRawOptions?.().readOnly !== false) return {ok:false, message:'ShareCode 当前不可编辑，请检查房间编辑权限和连接状态'};
   let bridge = globalThis.__meetingBridgeShareCode;
-  if (!bridge || bridge.model !== model) {
-    bridge = {model, token:crypto.randomUUID(), records:new Map()};
+  if (!bridge || bridge.roomKey !== request.roomKey) {
+    bridge?.disposeWatch?.dispose();
+    bridge = {roomKey:request.roomKey, model, token:crypto.randomUUID(), records:new Map()};
     globalThis.__meetingBridgeShareCode = bridge;
   }
+  const snapshot = () => {
+    const previous=bridge.model;
+    if(previous.isDisposed?.())return bridge.snapshot;
+    const positions=new Map();
+    for(const [id,record] of bridge.records){
+      const range=record.decoration&&previous.getDecorationRange(record.decoration);
+      if(range&&previous.getValueInRange(range)===record.text)positions.set(id,{
+        start:previous.getOffsetAt({lineNumber:range.startLineNumber,column:range.startColumn}),
+        end:previous.getOffsetAt({lineNumber:range.endLineNumber,column:range.endColumn})
+      });
+    }
+    return {text:previous.getValue(),positions};
+  };
+  if(bridge.model!==model){
+    // Changing the syntax language may replace Monaco's model without changing
+    // the room/page. Keep the binding token and migrate only verified ranges.
+    const saved=snapshot(),sameText=saved?.text===model.getValue();
+    bridge.disposeWatch?.dispose();bridge.disposeWatch=null;
+    for(const [id,record] of bridge.records){
+      const position=sameText&&saved.positions.get(id);
+      record.decoration=null;
+      if(position){
+        const a=model.getPositionAt(position.start),b=model.getPositionAt(position.end);
+        [record.decoration]=model.deltaDecorations([],[{range:{startLineNumber:a.lineNumber,startColumn:a.column,endLineNumber:b.lineNumber,endColumn:b.column},options:{description:'Meeting Bridge answer',stickiness:1}}]);
+      }
+    }
+    bridge.model=model;bridge.snapshot=null;
+  }
+  if(!bridge.disposeWatch&&model.onWillDispose)bridge.disposeWatch=model.onWillDispose(()=>{bridge.snapshot=snapshot();});
   if (request.action === 'probe') return {ok:true, documentToken:bridge.token};
   if (request.documentToken !== bridge.token) return {ok:false, message:'ShareCode 页面已重新加载，请重新绑定房间后继续；未重复写入'};
   if (!/^[\w-]{1,180}$/.test(request.id || '') || typeof request.text !== 'string' || !request.text.trim() || request.text.length > 100000 || !Number.isSafeInteger(request.revision)) return {ok:false, message:'同步内容无效或超过 10 万字'};
@@ -41,7 +71,7 @@ export function shareCodeEditor(request) {
   if (bridge.records.size >= 1000 && !record) return {ok:false, message:'本页同步条目已达上限，请重新加载并绑定房间'};
   let start, end, old = '';
   if (record) {
-    const range = model.getDecorationRange(record.decoration);
+    const range = record.decoration&&model.getDecorationRange(record.decoration);
     if (!range || model.getValueInRange(range) !== record.text) return {ok:false, message:'同步段落已被手工修改，已暂停，避免覆盖修改'};
     start = model.getOffsetAt({lineNumber:range.startLineNumber,column:range.startColumn});
     end = model.getOffsetAt({lineNumber:range.endLineNumber,column:range.endColumn});

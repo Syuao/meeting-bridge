@@ -8,19 +8,19 @@ const code=(await fs.readFile(new URL('../extension/background.js',import.meta.u
  .replace("import {createAnswerRelay, roomKey, SHARECODE_MATCH} from './answer-relay.js';",'').replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8'))
  .replace("import {translationCandidates} from './translation.js';",'');
 function load(storage={}){
- let handler,updated;const broadcasts=[];const sessionStore={};
+ let handler,updated;const broadcasts=[],tabUrls=new Map();const sessionStore={};
  const local={async get(keys){if(!keys)return structuredClone(storage);if(typeof keys==='string')return {[keys]:structuredClone(storage[keys])};const out={};for(const key of keys)if(key in storage)out[key]=structuredClone(storage[key]);return out;},async set(values){Object.assign(storage,structuredClone(values));}};
  const chrome={
   storage:{local,session:{async get(key){return {[key]:structuredClone(sessionStore[key])};},async set(values){Object.assign(sessionStore,structuredClone(values));}}},
   runtime:{onMessage:{addListener(fn){handler=fn;}},async sendMessage(msg){broadcasts.push(structuredClone(msg));},connectNative(){throw new Error('native not needed');},getURL(path){return `chrome-extension://${path}`;}},
   sidePanel:{setPanelBehavior:async()=>{}},
   windows:{onRemoved:{addListener(){}},async create(){return {id:99};}},
-  tabs:{onUpdated:{addListener(fn){updated=fn}},onRemoved:{addListener(){}},async query(){return[];},async get(id){return id===8?{id,url:'https://kode666.com/room/test'}:{id,url:'https://chatgpt.com/c/test'}},async sendMessage(id,msg){return {ok:true,...msg,sameConversation:true}}},
+  tabs:{onUpdated:{addListener(fn){updated=fn}},onRemoved:{addListener(){}},async query(){return[];},async get(id){return {id,url:tabUrls.get(id)||(id===8?'https://kode666.com/room/test':'https://chatgpt.com/c/test')}},async sendMessage(id,msg){return {ok:true,...msg,sameConversation:true}}},
   scripting:{async executeScript(){return [{result:{ok:true,documentToken:'document-1'}}]}},
  };
  vm.runInNewContext(code,{createAnswerRelay,roomKey,SHARECODE_MATCH,translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console,structuredClone,crypto:undefined,Math});
  const call=(msg,sender={})=>new Promise(resolve=>handler(msg,sender,resolve));
- return {storage,call,broadcasts,updated};
+ return {storage,call,broadcasts,updated,navigate:(id,url)=>tabUrls.set(id,url)};
 }
 test('each browser window receives an independent persistent transcription session',async()=>{
  const app=load({config:{streamingVersion:1,manualVersion:1,continuousVersion:1,fontSize:11},history:{transcripts:[{id:'legacy',text:'A'}],questions:[]}});
@@ -45,4 +45,17 @@ test('reloading either bound page pauses answer relay without changing transcrip
    assert.equal((await app.call({type:'answer_source_ready'},source)).config.enabled,false);
  }
  const state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.transcripts[0].text,'Existing transcript');assert.match(state.answerRelayStatus.message,/重新加载/);
+});
+
+test('rebind after same-tab conversation and room navigation uses the live URLs, not the initial document URL',async()=>{
+ const old='https://chatgpt.com/c/test',next='https://chatgpt.com/c/next';
+ const app=load({target:{tabId:7,url:old},history:{transcripts:[{id:'kept',text:'Keep'}],questions:[]}});
+ await app.call({type:'session_context',windowId:10});await app.call({type:'relay_bind',sessionId:'legacy',tabId:8});
+ app.navigate(7,next);app.navigate(8,'https://kode666.com/room/next');
+ await app.call({type:'bind',sessionId:'legacy',tabId:7});await app.call({type:'relay_bind',sessionId:'legacy',tabId:8});
+ const sender={frameId:0,tab:{id:7,url:next},url:old};
+ const ready=await app.call({type:'answer_source_ready',pageUrl:next},sender);assert.equal(ready.config.enabled,true);
+ assert.equal((await app.call({type:'answer_selection',pageUrl:next,epoch:ready.config.epoch,id:'selected',revision:1,text:'Test selection'},sender)).ok,true);
+ assert.equal((await app.call({type:'answer_source_ready',pageUrl:old},sender)).config.enabled,false);
+ const state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.transcripts[0].text,'Keep');assert.match(state.config.answerRelay.room.url,/room\/next/);
 });

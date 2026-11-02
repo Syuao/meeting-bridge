@@ -2,6 +2,13 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.9.2
+
+- All 109 Node tests pass. New cases cover rebinding after same-tab conversation/room navigation with a stale sender document URL, list items containing paragraph/div wrappers, and Monaco model replacement with both unchanged and changed content.
+- Authenticated Chrome confirmed extension version 0.9.2 loaded. Reconnecting the current conversation/room passed the source/room health check. Switching ShareCode from JavaScript to Python preserved the connection; selecting a neutral heading appended it to the room. Switching back to JavaScript retained the written text.
+- The loaded browser version before this update was still 0.9.0. Existing 489 transcript rows and 103 selected excerpts were retained. No audio helper or permissions were changed.
+- Model replacement migrates tracked ranges only when the full document text and recorded ranges are verified; changed content cannot be overwritten by the old stream. A real page reload or room change still requires explicit rebinding.
+
 ## Version 0.9.1
 
 - All 105 Node tests pass. Added regression cases reproduce a transient heartbeat failure permanently removing listeners and invalidated-runtime cleanup blocking reinjection; both now recover.

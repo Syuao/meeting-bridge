@@ -1,5 +1,5 @@
 (() => {
-  const VERSION='0.9.1';
+  const VERSION='0.9.2';
   // Rebinding also replaces a receiver left behind by an extension reload.
   try {globalThis.__meetingBridgeAnswers?.cleanup();} catch {/* The previous runtime may already be invalidated. */}
   const Sites=globalThis.MeetingBridgeSites;
@@ -19,7 +19,22 @@
     if(node.nodeName==='BR')return '\n';
     const text=[...node.childNodes].map(plain).join('');
     if(/^(P|DIV|H[1-6]|UL|OL|BLOCKQUOTE|TABLE)$/.test(node.nodeName))return '\n'+text+'\n';
-    if(node.nodeName==='LI')return '\n• '+text+'\n';
+    if(node.nodeName==='LI'){
+      let marker='•';
+      const list=node.parentElement;
+      if(list?.nodeName==='OL'){
+        let number=Number(list.getAttribute('start'))||1;
+        for(const item of list.childNodes){
+          if(item.nodeName!=='LI')continue;
+          const value=item.getAttribute('value');if(value!==null)number=Number(value);
+          if(item===node)break;number++;
+        }
+        marker=number+'.';
+      }
+      // A paragraph inside <li> supplies its own leading newline. Strip it
+      // before adding the marker, otherwise the bullet occupies a whole line.
+      return '\n'+marker+' '+text.replace(/^\n+|\n+$/g,'')+'\n';
+    }
     if(node.nodeName==='TR')return text+'\n';
     if(/^(TD|TH)$/.test(node.nodeName))return text+'\t';
     return text;
@@ -37,7 +52,7 @@
   }
   function send(message,manual=false) {
     const epoch=config.epoch;
-    chrome.runtime.sendMessage({...message,epoch}).then(result=>{
+    chrome.runtime.sendMessage({...message,epoch,pageUrl:location.href}).then(result=>{
       if(disposed||epoch!==config.epoch)return;
       if(manual)notice(result?.ok?'已誊写到 ShareCode':result?.message||'誊写失败，请检查绑定',!result?.ok);
       if(!result?.ok)config.enabled=false;
@@ -113,7 +128,7 @@
     if(disposed)return;
     const before=config;
     try{
-      const result=await chrome.runtime.sendMessage({type:'answer_source_ready'});
+      const result=await chrome.runtime.sendMessage({type:'answer_source_ready',pageUrl:location.href});
       if(disposed||config!==before)return;
       lastHandshake=result?.message||(result?.config?.enabled?'已连接':'未启用');
       if(result?.config)configure(result.config);
