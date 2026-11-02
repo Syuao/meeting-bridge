@@ -1,9 +1,10 @@
+import {createAnswerRelay,roomKey,SHARECODE_MATCH} from '../extension/answer-relay.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {translationCandidates} from '../extension/translation.js';
 import fs from 'node:fs/promises';
-const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
+const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import {createAnswerRelay, roomKey, SHARECODE_MATCH} from './answer-relay.js';",'').replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 function load(storage={}) {
   let handle,native;const outgoing=[],broadcasts=[];
@@ -13,7 +14,7 @@ function load(storage={}) {
     sidePanel:{async setPanelBehavior(){}},
     tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}}}
   };
-  vm.runInNewContext(code,{translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console});
+  vm.runInNewContext(code,{createAnswerRelay,roomKey,SHARECODE_MATCH,translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console});
   return {outgoing,broadcasts,call:msg=>new Promise(resolve=>handle(msg,{},resolve)),emit:msg=>native(msg)};
 }
 test('transcripts persist while audio level events continue, and survive a worker restart',async()=>{

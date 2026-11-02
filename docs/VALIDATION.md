@@ -2,6 +2,14 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.9.0
+
+- 101 Node tests pass, covering partial-answer forwarding before completion, selection during generation, current ChatGPT markup, mode changes, duplicate delivery, room editing conflicts, page refresh, whitespace cleanup, and the existing capture/history/draft tests.
+- On the authenticated Chrome pages, selected ChatGPT answer text was appended to the bound ShareCode editor while preserving its existing text. A live generated test answer appeared in ShareCode while ChatGPT still displayed its Stop button. Switching to manual mode and selecting text also appended the selection.
+- After loading the final whitespace fix, selecting a heading with its paragraph and then a second heading produced three consecutive nonempty ShareCode lines, with no blank line within or between selections.
+- Extension reloads preserved the existing 442 transcript rows and 110 selected excerpts. The final update changes extension code only; the installed audio app, signature, permissions and credentials are not replaced.
+- Website checks use a test prompt, not meeting audio. No long-session performance claim is made. ChatGPT is the only answer-source adapter in this version; other supported sites retain draft insertion.
+
 ## Version 0.7.1
 
 - All 78 Node tests passed, including compact audio meter messages, unchanged delivery failures avoiding repeated history broadcasts, receiver upgrades, and a read-only composer reconnect check.

@@ -5,11 +5,12 @@ import {writeClipboard} from './clipboard.js';
 import {translationText,translationPending} from './translation.js';
 const $=id=>document.getElementById(id);
 let sessionId='';
-const rawApi=async msg=>{const result=await chrome.runtime.sendMessage(msg);if(result?.error)throw new Error(result.error);return result;};
+const deadline=(promise,label)=>{let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+'超时，请关闭侧栏后重新打开')),8000)})]).finally(()=>clearTimeout(timer));};
+const rawApi=async msg=>{const result=await deadline(chrome.runtime.sendMessage(msg),'连接扩展后台（'+msg.type+'）');if(result?.error)throw new Error(result.error);return result;};
 const api=async msg=>rawApi({...msg,sessionId});
 async function initSession(){
   const explicit=new URLSearchParams(location.search).get('session');
-  const win=chrome.windows?.getCurrent?await chrome.windows.getCurrent():null;
+  const win=chrome.windows?.getCurrent?await deadline(chrome.windows.getCurrent(),'读取当前窗口'):null;
   const context=await rawApi({type:'session_context',sessionId:explicit||undefined,windowId:win?.id});
   sessionId=context.sessionId;
   return context;
@@ -203,8 +204,26 @@ function renderDelivery(){
   el.classList.toggle('waiting',!!waiting.length);
   el.textContent=waiting.length?`尚未填入 ${waiting.length} 条：${waiting[0].detail||'正在连接目标对话…'}。已复制的选句可用 ⌘V 粘贴。`:last&&['filled','sent'].includes(last.status)?(selectionResultStatus===last.status?selectionNotice:'已追加到目标对话草稿 · 未发送'):selectionNotice;
 }
+function renderRelay(){
+  const relay=state?.config.answerRelay||{};
+  $('relayAutomatic').checked=!!relay.automatic;
+  $('relayModeHint').textContent=relay.automatic?'生成中持续同步':'关闭时：在 AI 回答中划词誊写';
+  $('relayBound').textContent=relay.room?'已绑定：'+relay.room.url:'尚未绑定 ShareCode';
+  $('relayUnbind').disabled=!relay.room;
+  $('relayStatus').textContent=state?.answerRelayStatus?.message||(relay.room?'点击「绑定 / 重连」继续同步':'先在「回答 → ShareCode」中绑定房间');
+}
+async function refreshRooms(){
+  const rooms=await api({type:'relay_rooms'});$('relayRooms').replaceChildren();
+  if(!rooms.length)$('relayRooms').append(new Option('请先打开 ShareCode 房间',''));
+  for(const room of rooms)$('relayRooms').append(new Option((room.title||'ShareCode')+' · '+new URL(room.url).pathname.split('/').filter(Boolean).pop().slice(0,8)+'（'+(room.name||'名称未读取')+'）',room.id));
+  const bound=state?.config.answerRelay?.room;if(bound&&rooms.some(r=>r.id===bound.tabId))$('relayRooms').value=String(bound.tabId);
+}
+$('relayRefresh').onclick=()=>refreshRooms().catch(e=>toast(e.message));
+$('relayBind').onclick=()=>{const tabId=Number($('relayRooms').value);if(!tabId){toast('请先打开并选择 ShareCode 房间');return;}api({type:'relay_bind',tabId}).catch(e=>toast(e.message));};
+$('relayUnbind').onclick=()=>api({type:'relay_unbind'}).catch(e=>toast(e.message));
+$('relayAutomatic').onchange=()=>api({type:'relay_mode',automatic:$('relayAutomatic').checked}).catch(e=>toast(e.message));
 function render(next){
-  state=next;if(!setupInitialized){$('setup').open=!state.target;setupInitialized=true;}
+  state=next;renderRelay();if(!setupInitialized){$('setup').open=!state.target;setupInitialized=true;}
   $('status').textContent=({stopped:'已停止',stopping:'保存末段',loading:'正在连接',permission:'准备采集',listening:'监听中',error:'需要处理'})[state.status]||'准备就绪';
   $('statusMessage').textContent=state.message;$('statusMessage').title=state.message;
   $('level').style.width=Math.round(state.level*100)+'%';$('dot').classList.toggle('active',state.running);
@@ -279,6 +298,7 @@ $('retryCopy').onclick=async()=>{
 $('clear').onclick=()=>{if(confirm('永久清空本机保存的全部转写和问题历史？')){selectionNotice='';lastSelectionId=null;clearSelection();historyStart=0;api({type:'clear'});}};
 chrome.runtime.onMessage.addListener(msg=>{
   if(msg.type==='state'&&msg.sessionId===sessionId)render(msg.state);
+  if(msg.type==='relay_status'&&msg.sessionId===sessionId&&state){state.answerRelayStatus=msg.status;renderRelay();}
   // Meter ticks must not serialize, format or lay out the transcript history.
   if(msg.type==='level'&&msg.sessionId===sessionId&&state){state.level=msg.value;$('level').style.width=Math.round(msg.value*100)+'%';}
 });
@@ -287,4 +307,7 @@ $('testApi').onclick=()=>api({type:'test_api',provider:'deepseek'}).catch(e=>toa
 $('saveAsr').onclick=async()=>{try{await api({type:'configure_asr',key:$('asrKey').value,region:$('asrRegion').value});$('asrKey').value='';toast('已提交本机保存');}catch(e){toast(e.message);}};
 $('testAsr').onclick=()=>api({type:'test_asr'}).catch(e=>toast(e.message));
 $('retryTranslation').onclick=()=>api({type:'translation_retry'}).catch(e=>toast(e.message));
-await initSession();render(await api({type:'get_state'}));await refreshTabs();if(state.config.questionMode==='semantic'||(state.config.translationEnabled&&state.config.translationProvider==='deepseek'))await api({type:'api_status'});await api({type:'asr_status'});
+try {
+  $('statusMessage').textContent='正在读取窗口和已保存历史…';
+  await initSession();render(await api({type:'get_state'}));await refreshTabs();await refreshRooms();if(state.config.questionMode==='semantic'||(state.config.translationEnabled&&state.config.translationProvider==='deepseek'))await api({type:'api_status'});await api({type:'asr_status'});
+} catch(e) { $('statusMessage').textContent=e.message;$('relayStatus').textContent=e.message; }

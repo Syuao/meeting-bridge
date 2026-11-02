@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meeting Bridge · 会议提问助手",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "实时转写和中文翻译，划选英文追加到 ChatGPT、DeepSeek 或千问网页草稿。",
   "permissions": [
     "nativeMessaging",
@@ -18,10 +18,11 @@
     "https://chat.deepseek.com/*",
     "https://www.qianwen.com/*",
     "https://qianwen.com/*",
-    "https://chat.qwen.ai/*"
+    "https://chat.qwen.ai/*",
+    "https://kode666.com/room/*"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "worker.js",
     "type": "module"
   },
   "action": {
@@ -42,7 +43,8 @@
       ],
       "js": [
         "sites.js",
-        "content.js"
+        "content.js",
+        "answer-source.js"
       ],
       "run_at": "document_idle"
     }

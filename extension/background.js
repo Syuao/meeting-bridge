@@ -1,3 +1,4 @@
+import {createAnswerRelay, roomKey, SHARECODE_MATCH} from './answer-relay.js';
 import './sites.js';
 const Sites=globalThis.MeetingBridgeSites;
 const ASR_MODELS=['qwen-audio-3.0-asr-flash-streaming','paraformer-realtime-v2'];
@@ -86,7 +87,7 @@ const receiverVersions=new Map();
 async function sendToComposer(tabId,message){
   if(!receiverVersions.has(tabId)){
     let probe;try{probe=await chrome.tabs.sendMessage(tabId,{type:'probe_composer',expectedKey:message.expectedKey});}catch{}
-    if(probe?.version!=='0.8.0')await chrome.scripting.executeScript({target:{tabId},files:['sites.js','content.js']});
+    if(probe?.version!=='0.9.0')await chrome.scripting.executeScript({target:{tabId},files:['sites.js','content.js']});
     receiverVersions.set(tabId,true);
   }
   try{
@@ -119,11 +120,22 @@ async function deliver(id=null) {
   } catch(e) {q.status='waiting';q.detail=/Receiving end|Could not establish connection/.test(e.message||'')?'无法连接目标对话页面，请刷新该页面后重试':e.message;}
   finally {delivering=false;if(q.status!==previousStatus||q.detail!==previousDetail)update(true);if(['sent','filled'].includes(q.status))void deliver();}
 }
+const relay=createAnswerRelay({chrome,sites:Sites,sessionId,getTarget:()=>state.target,getConfig:()=>state.config.answerRelay,
+  saveConfig:async value=>{state.config.answerRelay=value;await saveSession('config');update();},
+  notify:status=>{state.answerRelayStatus=status;chrome.runtime.sendMessage({type:'relay_status',sessionId,status}).catch(()=>{});}
+});
+initialized.then(()=>relay.restore());
 async function command(msg,sender) {
   await initialized;
   if(msg.type==='__persist_target'){await saveSession('target');update();return {ok:true};}
   if(msg.type==='__notify'){update();return {ok:true};}
   if(msg.type==='get_state') return state;
+  if(msg.type==='answer_source_ready')return {config:relay.sourceConfig()};
+  if(msg.type==='answer_update'||msg.type==='answer_selection')return relay.receive(msg,sender);
+  if(msg.type==='relay_rooms')return relay.rooms();
+  if(msg.type==='relay_bind')return relay.bind(msg.tabId,key=>roomTaken(key,sessionId));
+  if(msg.type==='relay_mode')return relay.setMode(msg.automatic);
+  if(msg.type==='relay_unbind')return relay.unbind();
   if(msg.type==='check_composer'){
     if(!state.target)throw new Error('请先绑定目标对话。');
     const tab=await chrome.tabs.get(state.target.tabId);
@@ -136,7 +148,7 @@ async function command(msg,sender) {
   if(['configure_api','api_status','retry_api','test_api'].includes(msg.type)){connect().postMessage({type:msg.type,provider:msg.provider,...(msg.type==='configure_api'?{key:String(msg.key||'')}: {})});return {ok:true};}
   if(['configure_asr','asr_status','test_asr'].includes(msg.type)){connect().postMessage({type:msg.type,model:state.config.asrModel,...(msg.type==='configure_asr'?{key:String(msg.key||''),region:msg.region}:{})});return {ok:true};}
   if(msg.type==='get_tabs') {const query={url:Sites.matches};if(windowId!=null)query.windowId=windowId;return (await chrome.tabs.query(query)).map(t=>({id:t.id,title:t.title,url:t.url,provider:Sites.site(t.url)?.name}));}
-  if(msg.type==='bind') {const tab=await chrome.tabs.get(Number(msg.tabId));if(!Sites.site(tab.url))throw new Error('请选择 ChatGPT、DeepSeek 或千问标签页');if(await targetTaken(tab.id,key(tab.url),sessionId))throw new Error('这个对话已绑定到另一个独立窗口，请选择本窗口的对话。');if(state.target&&(state.target.tabId!==tab.id||key(state.target.url)!==key(tab.url))){for(const q of state.questions)if(['pending','waiting'].includes(q.status)){q.status='held';q.requested=false;q.detail='旧对话的问题，可手动填入';}}state.target={tabId:tab.id,title:tab.title,url:tab.url,windowId:tab.windowId};await saveSession('target');update(true);void deliver();return {ok:true};}
+  if(msg.type==='bind') {const tab=await chrome.tabs.get(Number(msg.tabId));if(!Sites.site(tab.url))throw new Error('请选择 ChatGPT、DeepSeek 或千问标签页');if(await targetTaken(tab.id,key(tab.url),sessionId))throw new Error('这个对话已绑定到另一个独立窗口，请选择本窗口的对话。');if(state.target&&(state.target.tabId!==tab.id||key(state.target.url)!==key(tab.url))){for(const q of state.questions)if(['pending','waiting'].includes(q.status)){q.status='held';q.requested=false;q.detail='旧对话的问题，可手动填入';}}if(state.config.answerRelay?.room)await relay.suspend('大模型绑定已变化，请重新绑定 / 重连 ShareCode');state.target={tabId:tab.id,title:tab.title,url:tab.url,windowId:tab.windowId};await saveSession('target');update(true);void deliver();return {ok:true};}
   if(msg.type==='config') {
     const c=msg.value||{};
     if(Object.hasOwn(c,'asrModel')){
@@ -177,7 +189,7 @@ async function command(msg,sender) {
   if(msg.type==='open_panel') {await openIndependentWindow();return {ok:true};}
 }
 
-  return {sessionId,state,command,receiverVersions,ready:initialized,notify:()=>update(),setWindowId:(id)=>{windowId=id},getWindowId:()=>windowId};
+  return {sessionId,state,command,relay,receiverVersions,ready:initialized,notify:()=>update(),setWindowId:(id)=>{windowId=id},getWindowId:()=>windowId};
 }
 
 async function targetTaken(tabId, conversationKey, exceptSession){
@@ -212,14 +224,39 @@ async function resolveSession(msg,sender){
   if(msg.type==='composer_ready'&&sender.tab?.id){for(const s of sessions.values()){await s.ready;if(s.state.target?.tabId===sender.tab.id)return {session:s,sessionId:s.sessionId};}}
   const s=await createSession(DEFAULT_SESSION,null,Number.isInteger(sender.windowId)?sender.windowId:null);return {session:s,sessionId:DEFAULT_SESSION};
 }
+async function roomTaken(key,exceptSession){
+  const saved=await chrome.storage.local.get(['config','meetingSessions']);
+  const records={legacy:{config:saved.config},...saved.meetingSessions};
+  for(const [id,record] of Object.entries(records))if(id!==exceptSession&&record.config?.answerRelay?.room?.key===key)return true;
+  return false;
+}
+async function answerMessage(msg,sender){
+  if(sender.frameId>0||!sender.tab?.id||!Sites.site(sender.url||sender.tab.url))return {config:{enabled:false}};
+  for(const session of sessions.values()){
+    await session.ready;
+    if(session.state.target?.tabId===sender.tab.id&&Sites.key(session.state.target.url)===Sites.key(sender.url||sender.tab.url))return session.command(msg,sender);
+  }
+  return {config:{enabled:false},ok:false,message:'请在侧栏绑定并连接 ShareCode'};
+}
 chrome.runtime.onMessage.addListener((msg,sender,reply)=>{
+  if(['answer_source_ready','answer_update','answer_selection'].includes(msg.type)){
+    answerMessage(msg,sender).then(reply).catch(e=>reply({ok:false,message:e.message}));return true;
+  }
   if(msg.type==='state')return false;
   if(sender.tab&& !sender.url?.startsWith(chrome.runtime.getURL?.('')||'chrome-extension://') && msg.type!=='composer_ready')return false;
   resolveSession(msg,sender).then(ctx=>msg.type==='session_context'?{sessionId:ctx.sessionId,windowId:ctx.windowId}:ctx.session.command(msg,sender)).then(reply).catch(e=>reply({error:e.message}));return true;
 });
 chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}).catch(()=>{});
 chrome.tabs.onUpdated.addListener(async(id,change,tab)=>{
-  for(const session of sessions.values()){await session.ready;session.receiverVersions.delete(id);const target=session.state.target;if(id!==target?.tabId||!change.url)continue;if(Sites.adopt(target.url,tab.url)){target.url=tab.url;target.title=tab.title;await session.command({type:'__persist_target'},{});}}
+  for(const session of sessions.values()){
+    await session.ready;session.receiverVersions.delete(id);
+    const target=session.state.target,room=session.state.config.answerRelay?.room;
+    if(room&&change.status==='loading'&&(room.tabId===id||target?.tabId===id))await session.relay.suspend('绑定页面正在重新加载；加载完成后点击「绑定 / 重连」继续');
+    if(change.url&&room?.tabId===id&&roomKey(change.url)!==room.key)await session.relay.suspend('ShareCode 房间已切换，请重新绑定');
+    if(id!==target?.tabId||!change.url)continue;
+    if(Sites.adopt(target.url,tab.url)){target.url=tab.url;target.title=tab.title;await session.command({type:'__persist_target'},{});}
+    else if(Sites.key(target.url)!==Sites.key(tab.url))await session.relay.suspend('大模型对话已切换，请重新绑定');
+  }
 });
-chrome.tabs.onRemoved.addListener(async id=>{for(const session of sessions.values()){await session.ready;session.receiverVersions.delete(id);if(id===session.state.target?.tabId){session.state.message='目标对话已关闭，请重新绑定';session.notify();}}});
-chrome.windows?.onRemoved?.addListener(async id=>{const sid=windowSessions.get(id);windowSessions.delete(id);await saveWindowMap();if(sid&&sessions.has(sid)){const session=sessions.get(sid);await session.ready;if(session.state.running||session.state.status==='stopping')await session.command({type:'stop'},{});}});
+chrome.tabs.onRemoved.addListener(async id=>{for(const session of sessions.values()){await session.ready;session.receiverVersions.delete(id);if(id===session.state.target?.tabId||id===session.state.config.answerRelay?.room?.tabId)await session.relay.suspend('绑定的页面已关闭，请重新绑定');if(id===session.state.target?.tabId){session.state.message='目标对话已关闭，请重新绑定';session.notify();}}});
+chrome.windows?.onRemoved?.addListener(async id=>{const sid=windowSessions.get(id);windowSessions.delete(id);await saveWindowMap();if(sid&&sessions.has(sid)){const session=sessions.get(sid);await session.ready;await session.relay.suspend('窗口已关闭');if(session.state.running||session.state.status==='stopping')await session.command({type:'stop'},{});}});

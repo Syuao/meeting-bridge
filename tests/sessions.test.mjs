@@ -1,24 +1,26 @@
+import {createAnswerRelay,roomKey,SHARECODE_MATCH} from '../extension/answer-relay.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs/promises';
 import {translationCandidates} from '../extension/translation.js';
 const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8'))
- .replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8'))
+ .replace("import {createAnswerRelay, roomKey, SHARECODE_MATCH} from './answer-relay.js';",'').replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8'))
  .replace("import {translationCandidates} from './translation.js';",'');
 function load(storage={}){
- let handler;const broadcasts=[];const sessionStore={};
+ let handler,updated;const broadcasts=[];const sessionStore={};
  const local={async get(keys){if(!keys)return structuredClone(storage);if(typeof keys==='string')return {[keys]:structuredClone(storage[keys])};const out={};for(const key of keys)if(key in storage)out[key]=structuredClone(storage[key]);return out;},async set(values){Object.assign(storage,structuredClone(values));}};
  const chrome={
   storage:{local,session:{async get(key){return {[key]:structuredClone(sessionStore[key])};},async set(values){Object.assign(sessionStore,structuredClone(values));}}},
   runtime:{onMessage:{addListener(fn){handler=fn;}},async sendMessage(msg){broadcasts.push(structuredClone(msg));},connectNative(){throw new Error('native not needed');},getURL(path){return `chrome-extension://${path}`;}},
   sidePanel:{setPanelBehavior:async()=>{}},
   windows:{onRemoved:{addListener(){}},async create(){return {id:99};}},
-  tabs:{onUpdated:{addListener(){}},onRemoved:{addListener(){}},async query(){return[];},async get(){throw new Error('not needed');}},
+  tabs:{onUpdated:{addListener(fn){updated=fn}},onRemoved:{addListener(){}},async query(){return[];},async get(id){return id===8?{id,url:'https://kode666.com/room/test'}:{id,url:'https://chatgpt.com/c/test'}},async sendMessage(){return {ok:true}}},
+  scripting:{async executeScript(){return [{result:{ok:true,documentToken:'document-1'}}]}},
  };
- vm.runInNewContext(code,{translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console,structuredClone,crypto:undefined,Math});
+ vm.runInNewContext(code,{createAnswerRelay,roomKey,SHARECODE_MATCH,translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console,structuredClone,crypto:undefined,Math});
  const call=(msg,sender={})=>new Promise(resolve=>handler(msg,sender,resolve));
- return {storage,call,broadcasts};
+ return {storage,call,broadcasts,updated};
 }
 test('each browser window receives an independent persistent transcription session',async()=>{
  const app=load({config:{streamingVersion:1,manualVersion:1,continuousVersion:1,fontSize:11},history:{transcripts:[{id:'legacy',text:'A'}],questions:[]}});
@@ -30,4 +32,17 @@ test('each browser window receives an independent persistent transcription sessi
  assert.equal((await app.call({type:'get_state',sessionId:a.sessionId})).config.fontSize,11);
  assert.equal((await app.call({type:'get_state',sessionId:b.sessionId})).config.fontSize,20);
  assert.ok(app.storage.meetingSessions[b.sessionId]);
+});
+test('reloading either bound page pauses answer relay without changing transcript history',async()=>{
+ const target={tabId:7,url:'https://chatgpt.com/c/test'};
+ const app=load({target,history:{transcripts:[{id:'kept',text:'Existing transcript'}],questions:[]}});
+ await app.call({type:'session_context',windowId:10});
+ const source={frameId:0,tab:{id:7,url:target.url},url:target.url};
+ for(const id of [7,8]){
+   assert.equal((await app.call({type:'relay_bind',sessionId:'legacy',tabId:8})).ok,true);
+   assert.equal((await app.call({type:'answer_source_ready'},source)).config.enabled,true);
+   await app.updated(id,{status:'loading'},{id,url:id===7?target.url:'https://kode666.com/room/test'});
+   assert.equal((await app.call({type:'answer_source_ready'},source)).config.enabled,false);
+ }
+ const state=await app.call({type:'get_state',sessionId:'legacy'});assert.equal(state.transcripts[0].text,'Existing transcript');assert.match(state.answerRelayStatus.message,/重新加载/);
 });

@@ -1,16 +1,17 @@
+import {createAnswerRelay,roomKey,SHARECODE_MATCH} from '../extension/answer-relay.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {translationCandidates} from '../extension/translation.js';
 import fs from 'node:fs/promises';
-const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
+const code=(await fs.readFile(new URL('../extension/background.js',import.meta.url),'utf8')).replace("import {createAnswerRelay, roomKey, SHARECODE_MATCH} from './answer-relay.js';",'').replace("import './sites.js';",await fs.readFile(new URL('../extension/sites.js',import.meta.url),'utf8')).replace("import {translationCandidates} from './translation.js';",'');
 const pause=()=>new Promise(resolve=>setTimeout(resolve,20));
-function setup({send,history,config,inject,tabUrl,receiverVersion='0.8.0'}={}){
+function setup({send,history,config,inject,tabUrl,receiverVersion='0.9.0'}={}){
   let listener;const messages=[],native=[],injections=[],broadcasts=[];
   const target={tabId:7,url:'https://chatgpt.com/c/existing',title:'Existing'};
   const storage={config:{streamingVersion:1,manualVersion:1,questionMode:'manual',autoFill:false,...config},target,history};
   const chrome={storage:{local:{async get(){return structuredClone(storage)},async set(data){Object.assign(storage,structuredClone(data))}},session:{async get(){return {}}}},runtime:{onMessage:{addListener(fn){listener=fn}},async sendMessage(msg){broadcasts.push(structuredClone(msg))},connectNative(){return {onMessage:{addListener(){}},onDisconnect:{addListener(){}},postMessage(msg){native.push(msg)}}}},sidePanel:{async setPanelBehavior(){}},scripting:{async executeScript(details){injections.push(details);await inject?.(details)}},tabs:{async get(id){return {id,url:tabUrl||(id===7?target.url:'https://chatgpt.com/c/new'),title:'Chat'}},async sendMessage(id,msg){if(msg.type==='probe_composer')return {version:receiverVersion,ready:true};messages.push(msg);return send?send(msg):{ok:true,appended:true}},onUpdated:{addListener(){}},onRemoved:{addListener(){}}}};
-  vm.runInNewContext(code,{translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console});
+  vm.runInNewContext(code,{createAnswerRelay,roomKey,SHARECODE_MATCH,translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console});
   return {messages,native,storage,injections,broadcasts,call:(msg,sender={})=>new Promise(resolve=>{if(listener(msg,sender,resolve)===false)resolve({blocked:true})})};
 }
 test('manual selections work after capture stops, never send, and repeated clicks do not duplicate',async()=>{

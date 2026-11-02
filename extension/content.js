@@ -1,5 +1,5 @@
 (() => {
-  if(globalThis.__meetingBridgeReceiver?.version==='0.8.0')return;
+  if(globalThis.__meetingBridgeReceiver?.version==='0.9.0')return;
   const applied=globalThis.__meetingBridgeReceiver?.applied||new Set();
   globalThis.__meetingBridgeReceiver?.cleanup?.();
   const visible=el=>!!el && !!(el.offsetWidth||el.offsetHeight||el.getClientRects().length);
@@ -72,12 +72,12 @@
     } finally {filling=false;}
   }
   const listener=(msg,sender,reply)=>{
-    if(msg.type==='probe_composer'){const same=Sites?.key(location.href)===msg.expectedKey;reply({version:'0.8.0',ready:same&&!!composer(),sameConversation:same});return false;}
+    if(msg.type==='probe_composer'){const same=Sites?.key(location.href)===msg.expectedKey;reply({version:'0.9.0',ready:same&&!!composer(),sameConversation:same});return false;}
     if(msg.type!=='fill_question')return false;fill(msg).then(reply).catch(e=>reply({ok:false,message:e.message}));return true;
   };
   chrome.runtime.onMessage.addListener(listener);
   // Only a queued fill needs DOM inspection. Idle tabs no longer scan the whole
   // conversation (or force layout) on every heartbeat.
   const readyTimer=setInterval(()=> {try{if(!chrome.runtime?.id){clearInterval(readyTimer);return;}if(!filling)chrome.runtime.sendMessage({type:'composer_ready'}).catch(()=>{});}catch{clearInterval(readyTimer);}},1200);
-  globalThis.__meetingBridgeReceiver={version:'0.8.0',applied,cleanup(){clearInterval(readyTimer);chrome.runtime.onMessage.removeListener(listener);}};
+  globalThis.__meetingBridgeReceiver={version:'0.9.0',applied,cleanup(){clearInterval(readyTimer);chrome.runtime.onMessage.removeListener(listener);}};
 })();
