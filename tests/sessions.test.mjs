@@ -15,7 +15,7 @@ function load(storage={}){
   runtime:{onMessage:{addListener(fn){handler=fn;}},async sendMessage(msg){broadcasts.push(structuredClone(msg));},connectNative(){throw new Error('native not needed');},getURL(path){return `chrome-extension://${path}`;}},
   sidePanel:{setPanelBehavior:async()=>{}},
   windows:{onRemoved:{addListener(){}},async create(){return {id:99};}},
-  tabs:{onUpdated:{addListener(fn){updated=fn}},onRemoved:{addListener(){}},async query(){return[];},async get(id){return id===8?{id,url:'https://kode666.com/room/test'}:{id,url:'https://chatgpt.com/c/test'}},async sendMessage(){return {ok:true}}},
+  tabs:{onUpdated:{addListener(fn){updated=fn}},onRemoved:{addListener(){}},async query(){return[];},async get(id){return id===8?{id,url:'https://kode666.com/room/test'}:{id,url:'https://chatgpt.com/c/test'}},async sendMessage(id,msg){return {ok:true,...msg,sameConversation:true}}},
   scripting:{async executeScript(){return [{result:{ok:true,documentToken:'document-1'}}]}},
  };
  vm.runInNewContext(code,{createAnswerRelay,roomKey,SHARECODE_MATCH,translationCandidates,chrome,setTimeout,clearTimeout,URL,URLSearchParams,console,structuredClone,crypto:undefined,Math});

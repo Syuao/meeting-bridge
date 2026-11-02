@@ -37,13 +37,19 @@ export function createAnswerRelay({chrome, sites, sessionId, getTarget, getConfi
     const target=getTarget(), c=config();
     return {enabled:!!(active && c.room && target),automatic:!!c.automatic,epoch:c.epoch,expectedKey:target ? sites.key(target.url) : ''};
   }
+  function verifySource(health) {
+    const expected=sourceConfig();
+    if(!expected.enabled||!health?.ok||!health.enabled||!health.sameConversation||health.epoch!==expected.epoch||health.automatic!==expected.automatic)
+      throw Error('网页划词监听尚未连接，请点击「绑定 / 重连」');
+  }
   async function connectSource() {
     const target=getTarget(); if (!target) throw Error('请先绑定大模型对话');
     if (sites.site(target.url)?.id !== 'chatgpt') throw Error('回答同步首版支持 ChatGPT；其他网页仍可接收转写草稿');
     const tab=await chrome.tabs.get(target.tabId);
     if (sites.key(tab.url)!==sites.key(target.url)) throw Error('大模型对话已切换，请重新绑定');
     await chrome.scripting.executeScript({target:{tabId:target.tabId},files:['sites.js','answer-source.js']});
-    await chrome.tabs.sendMessage(target.tabId,{type:'answer_relay_config',...sourceConfig()});
+    const health=await chrome.tabs.sendMessage(target.tabId,{type:'answer_relay_config',...sourceConfig()});
+    verifySource(health);
   }
   async function suspend(message='同步已暂停') {
     generation++; active=false; pending.clear();
@@ -103,6 +109,21 @@ export function createAnswerRelay({chrome, sites, sessionId, getTarget, getConfi
   }
   return {
     bind,setMode,receive,sourceConfig,suspend,rooms,
+    async check(){
+      try {
+        const target=getTarget();if(!target)throw Error('请先绑定大模型对话');
+        if(!sourceConfig().enabled)throw Error('同步已暂停，请点击「绑定 / 重连」');
+        const tab=await chrome.tabs.get(target.tabId);
+        if(sites.key(tab.url)!==sites.key(target.url))throw Error('大模型对话已切换，请重新绑定');
+        const health=await chrome.tabs.sendMessage(target.tabId,{type:'answer_relay_probe'});
+        verifySource(health);
+        const room=config().room;
+        const probe=await runEditor(room,'probe');
+        if(probe.documentToken!==room.documentToken)throw Error('ShareCode 页面已重新加载，请点击「绑定 / 重连」');
+        report('ready',config().automatic?'连接正常：自动誊写已开启':'连接正常：在 AI 回答中划词，松手即誊写');
+        return {ok:true};
+      }catch(e){await suspend(e.message);throw e;}
+    },
     status:()=>status,
     async unbind(){await suspend();await saveConfig({automatic:!!config().automatic});report('unbound','已解除 ShareCode 绑定');return {ok:true};},
     async restore(){if(config().room){report('paused','同步已暂停；点击「绑定 / 重连」继续，避免重复誊写历史');}},

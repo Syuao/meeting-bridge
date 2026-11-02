@@ -221,6 +221,7 @@ async function refreshRooms(){
 $('relayRefresh').onclick=()=>refreshRooms().catch(e=>toast(e.message));
 $('relayBind').onclick=()=>{const tabId=Number($('relayRooms').value);if(!tabId){toast('请先打开并选择 ShareCode 房间');return;}api({type:'relay_bind',tabId}).catch(e=>toast(e.message));};
 $('relayUnbind').onclick=()=>api({type:'relay_unbind'}).catch(e=>toast(e.message));
+$('relayCheck').onclick=()=>api({type:'relay_check'}).catch(e=>toast(e.message));
 $('relayAutomatic').onchange=()=>api({type:'relay_mode',automatic:$('relayAutomatic').checked}).catch(e=>toast(e.message));
 function render(next){
   state=next;renderRelay();if(!setupInitialized){$('setup').open=!state.target;setupInitialized=true;}

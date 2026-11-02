@@ -1,15 +1,16 @@
 (() => {
-  const VERSION='0.9.0';
+  const VERSION='0.9.1';
   // Rebinding also replaces a receiver left behind by an extension reload.
-  globalThis.__meetingBridgeAnswers?.cleanup();
+  try {globalThis.__meetingBridgeAnswers?.cleanup();} catch {/* The previous runtime may already be invalidated. */}
   const Sites=globalThis.MeetingBridgeSites;
   const selector='[data-message-author-role="assistant"],[data-content-search-unit-key$=":assistant"]';
   let config={enabled:false},observer,timer,handshakeTimer,selectionTimer,disposed=false;
   let wasBusy=false,submitted=false,current=null,baseline=null,dragging=false,lastManual='';
+  let lastHandshake='';
   const nodes=()=>[...document.querySelectorAll(selector)].filter(node=>!node.parentElement?.closest(selector));
   const key=node=>node?.getAttribute('data-message-id')||node?.getAttribute('data-chatgpt-search-message-ids')||node?.closest('[data-turn-id]')?.getAttribute('data-turn-id')||node?.closest('[data-turn-key]')?.getAttribute('data-turn-key')||node;
   const busy=()=>!!document.querySelector('[data-testid="stop-button"],button[aria-label="Stop"],button[aria-label="停止"],button[title="停止"],button[aria-label="Stop streaming"],button[aria-label="Stop generating"],button[aria-label="停止生成"],button[aria-label="停止流式传输"]');
-  const same=()=>config.enabled&&Sites?.key(location.href)===config.expectedKey;
+  const same=()=>!disposed&&config.enabled&&Sites?.key(location.href)===config.expectedKey;
   function plain(node) {
     if(node.nodeType===3)return node.textContent||'';
     if(node.nodeType!==1 && node.nodeType!==11)return '';
@@ -102,9 +103,36 @@
   const submit=()=>{if(same()&&config.automatic){const last=nodes().at(-1);baseline=last?{id:key(last),text:answerText(last)}:null;submitted=true;current=null;schedule();}};
   const click=event=>{if(event.isTrusted&&event.target.closest?.('[data-testid="send-button"],button[aria-label="发送"],button[aria-label="Send"],button[aria-label="Send message"]'))submit();};
   const keyDown=event=>{if(event.isTrusted&&event.key==='Enter'&&!event.shiftKey&&event.target.closest?.('#prompt-textarea,[contenteditable="true"][role="textbox"],textarea'))submit();};
-  const listener=(msg,sender,reply)=>{if(msg.type!=='answer_relay_config')return false;configure(msg);reply({ok:true,version:VERSION});return false;};
-  async function handshake(){const before=config;try{const result=await chrome.runtime.sendMessage({type:'answer_source_ready'});if(result?.config&&config===before)configure(result.config);}catch{cleanup();}}
-  function cleanup(){disposed=true;observer?.disconnect();clearTimeout(timer);clearTimeout(selectionTimer);clearInterval(handshakeTimer);chrome.runtime.onMessage.removeListener(listener);document.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointerup',pointerUp,true);document.removeEventListener('keyup',keyUp,true);document.removeEventListener('keydown',keyDown,true);document.removeEventListener('click',click,true);document.getElementById('meeting-bridge-answer-notice')?.remove();}
+  const health=()=>({ok:true,version:VERSION,enabled:same(),epoch:config.epoch,sameConversation:Sites?.key(location.href)===config.expectedKey,automatic:!!config.automatic,lastHandshake});
+  const listener=(msg,sender,reply)=>{
+    if(msg.type==='answer_relay_probe'){reply(health());return false;}
+    if(msg.type!=='answer_relay_config')return false;
+    configure(msg);reply(health());return false;
+  };
+  async function handshake(){
+    if(disposed)return;
+    const before=config;
+    try{
+      const result=await chrome.runtime.sendMessage({type:'answer_source_ready'});
+      if(disposed||config!==before)return;
+      lastHandshake=result?.message||(result?.config?.enabled?'已连接':'未启用');
+      if(result?.config)configure(result.config);
+    }catch(e){
+      if(disposed||config!==before)return;
+      if(/extension context invalidated/i.test(String(e?.message||e))){
+        cleanup();notice('扩展已更新，请在侧栏点击「绑定 / 重连」',true);
+      }else{
+        // A temporary background-channel failure must not permanently remove
+        // the selection listeners or the timer that can recover the channel.
+        lastHandshake='连接暂时中断，正在重试';
+      }
+    }
+  }
+  function cleanup(){
+    disposed=true;observer?.disconnect();clearTimeout(timer);clearTimeout(selectionTimer);clearInterval(handshakeTimer);
+    document.removeEventListener('pointerdown',pointerDown,true);document.removeEventListener('pointerup',pointerUp,true);document.removeEventListener('keyup',keyUp,true);document.removeEventListener('keydown',keyDown,true);document.removeEventListener('click',click,true);document.getElementById('meeting-bridge-answer-notice')?.remove();
+    try{chrome.runtime.onMessage.removeListener(listener);}catch{/* Old extension contexts cannot access runtime APIs. */}
+  }
   chrome.runtime.onMessage.addListener(listener);
   document.addEventListener('pointerdown',pointerDown,true);document.addEventListener('pointerup',pointerUp,true);document.addEventListener('keyup',keyUp,true);document.addEventListener('keydown',keyDown,true);document.addEventListener('click',click,true);
   handshakeTimer=setInterval(handshake,5000);void handshake();

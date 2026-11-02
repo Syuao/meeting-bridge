@@ -2,6 +2,13 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.9.1
+
+- All 105 Node tests pass. Added regression cases reproduce a transient heartbeat failure permanently removing listeners and invalidated-runtime cleanup blocking reinjection; both now recover.
+- Binding requires acknowledgement of the current source mode and epoch before reporting ready. The new connection check probes both the source listener and the room document without writing text.
+- The user confirmed manual selections working again after reload/reconnection. The original failing browser event was not logged, so the precise trigger is not proven; the regression cases establish concrete recovery defects rather than a definitive diagnosis of that event.
+- Only extension code is updated. No capture app, credentials, permissions, or stored transcript data are changed.
+
 ## Version 0.9.0
 
 - 101 Node tests pass, covering partial-answer forwarding before completion, selection during generation, current ChatGPT markup, mode changes, duplicate delivery, room editing conflicts, page refresh, whitespace cleanup, and the existing capture/history/draft tests.

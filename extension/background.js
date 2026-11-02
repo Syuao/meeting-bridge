@@ -133,6 +133,7 @@ async function command(msg,sender) {
   if(msg.type==='answer_source_ready')return {config:relay.sourceConfig()};
   if(msg.type==='answer_update'||msg.type==='answer_selection')return relay.receive(msg,sender);
   if(msg.type==='relay_rooms')return relay.rooms();
+  if(msg.type==='relay_check')return relay.check();
   if(msg.type==='relay_bind')return relay.bind(msg.tabId,key=>roomTaken(key,sessionId));
   if(msg.type==='relay_mode')return relay.setMode(msg.automatic);
   if(msg.type==='relay_unbind')return relay.unbind();
