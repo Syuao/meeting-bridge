@@ -100,6 +100,7 @@ test('Doubao WebSocket sends framed audio and waits for a final response',async(
 
 test('Doubao errors are user-safe and never expose provider details',()=>{
   assert.match(safeDoubaoError('403 resource permission denied').message,/API Key|Resource ID/);
+  assert.match(safeDoubaoError('403 requested resource not granted').message,/未开通或未授权/);
   assert.match(safeDoubaoError('429 quota').message,/额度|并发/);
   assert.match(safeDoubaoError('bad pcm sample rate').message,/音频格式/);
   assert.match(safeDoubaoError(45000002).message,/有效音频/);

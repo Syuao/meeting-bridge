@@ -105,6 +105,7 @@ export function parseDoubaoFrame(data) {
 
 export function safeDoubaoError(code) {
   const value=String(code||'').toLowerCase();
+  if(/requested resource not granted|resource[^\n]{0,80}not granted|resource[^\n]{0,80}unauthori[sz]ed/.test(value))return new Error('豆包 API Key 已识别，但当前项目未开通或未授权该 Resource ID；请在控制台开通流式语音识别 2.0，或选择已授权的资源。');
   if(/401|403|auth|api.?key|resource|permission|grant/.test(value))return new Error('豆包 API Key 无效，或未开通当前 Resource ID，请检查火山引擎控制台。');
   if(value==='45000001'||/invalid.?request|parameter/.test(value))return new Error('豆包请求参数无效，请检查 ASR 配置后重试。');
   if(value==='45000002'||/empty.?audio/.test(value))return new Error('豆包没有收到有效音频，请确认系统声音采集已开启。');
@@ -192,7 +193,7 @@ export class DoubaoASR {
       // alongside the generated request ID so a failed session can be traced
       // without ever logging the API key or audio payload.
       ws.on('upgrade',response=>{const value=response?.headers?.['x-tt-logid'];if(value)this.logId=Array.isArray(value)?value[0]:String(value);});
-      ws.on('open',()=>{try{ws.send(buildDoubaoStartFrame({uid:this.uid,request:this.request}));}catch{this.fail(safeDoubaoError('network'));}});ws.on('message',data=>this.receive(data));ws.on('unexpected-response',(_req,res)=>{res.resume();this.fail(safeDoubaoError(res.statusCode));});ws.on('error',()=>this.fail(safeDoubaoError('network')));ws.on('close',()=>{if(!['closed','failed'].includes(this.phase))this.fail(safeDoubaoError('closed'));});
+      ws.on('open',()=>{try{ws.send(buildDoubaoStartFrame({uid:this.uid,request:this.request}));}catch{this.fail(safeDoubaoError('network'));}});ws.on('message',data=>this.receive(data));ws.on('unexpected-response',(_req,res)=>{let body='';res.setEncoding?.('utf8');res.on('data',chunk=>{if(body.length<512)body+=String(chunk);});res.on('end',()=>this.fail(safeDoubaoError(`${res.statusCode} ${body}`)));});ws.on('error',()=>this.fail(safeDoubaoError('network')));ws.on('close',()=>{if(!['closed','failed'].includes(this.phase))this.fail(safeDoubaoError('closed'));});
     }catch{this.fail(safeDoubaoError('network'));}return this.startPromise;
   }
   receive(data){
