@@ -163,9 +163,9 @@ function renderTranscripts(){
   let cursor=feed.firstElementChild;
   for(let i=0;i<visible.length;i++){
     const row=visible[i];let node=transcriptNodes.get(row.id);
-    if(!node){node=document.createElement('div');node.className='stream-paragraph';node.dataset.id=row.id;const stamp=document.createElement('div');stamp.className='time-break';const text=document.createElement('div');text.className='entry-text';const translated=document.createElement('div');translated.className='translation-text';node.append(stamp,text,translated);transcriptNodes.set(row.id,node);}
-    const [stamp,text,translated]=node.children;
-    const previous=rows[historyStart+i-1],stampText=time(row.at);stamp.hidden=!!previous&&Math.abs(row.at-previous.at)<120000;if(stamp.textContent!==stampText)stamp.textContent=stampText;
+    if(!node){node=document.createElement('div');node.className='stream-paragraph';node.dataset.id=row.id;const stamp=document.createElement('div');stamp.className='time-break';const speaker=document.createElement('span');speaker.className='speaker-label';const text=document.createElement('div');text.className='entry-text';const translated=document.createElement('div');translated.className='translation-text';node.append(stamp,speaker,text,translated);transcriptNodes.set(row.id,node);}
+    const [stamp,speaker,text,translated]=node.children;
+    const previous=rows[historyStart+i-1],stampText=time(row.at);stamp.hidden=!!previous&&Math.abs(row.at-previous.at)<120000;if(stamp.textContent!==stampText)stamp.textContent=stampText;const speakerValue=row.speakerRaw||row.speakerId||'';const speakerText=speakerValue?(speakerValue==='Unknown'?'Speaker Unknown':`Speaker ${String(speakerValue).replace(/^speaker-/,'')}`):'';speaker.hidden=!speakerText;speaker.textContent=speakerText;
     node.classList.toggle('live',row.final===false&&state.running);node.title=row.final===false?(state.running?'这段文字仍在修订':'未确认的末段'):stampText;
     if(text.textContent!==row.text&&!protect(text))text.textContent=row.text;
     if(!protect(node)){
@@ -234,20 +234,29 @@ function render(next){
   $('translationStatus').textContent=state.config.translationEnabled?(state.translation?.message||'正在准备中文翻译'):'中文翻译已关闭';
   $('translationStatus').title=$('translationStatus').textContent;
   $('retryTranslation').hidden=!state.config.translationEnabled||!['error','retrying'].includes(state.translation?.state);
-  for(const key of ['language','source','questionMode','translationProvider','asrModel'])$(key).value=String(state.config[key]??(key==='asrModel'?'qwen-audio-3.0-asr-flash-streaming':''));
+  for(const key of ['language','source','questionMode','translationProvider','asrProvider','asrModel'])$(key).value=String(state.config[key]??(key==='asrModel'?'qwen-audio-3.0-asr-flash-streaming':''));
   if(pendingFont===state.config.fontSize)pendingFont=null;
   if(document.activeElement!==$('fontSize'))$('fontSize').value=String(pendingFont??state.config.fontSize);
   if(document.activeElement!==$('hotwords'))$('hotwords').value=state.config.hotwords||'';
-  for(const key of ['language','source','hotwords','questionMode'])$(key).disabled=state.running||state.status==='stopping';
-  const paraformer=state.config.asrModel==='paraformer-realtime-v2',cloudSource=state.config.source?.startsWith('aliyun-');
-  $('asrModel').disabled=!cloudSource||state.running||state.status==='stopping'||state.asr?.state==='testing';
-  $('asrModelHint').textContent=!cloudSource?'选择阿里云输入来源后，可切换云端转写模型。':paraformer?(state.asr?.configured&&state.asr.region!=='beijing'?'Paraformer 仅支持北京地域；请更换北京密钥及地域，或切回 Qwen。':'Paraformer 支持中英文实时转写，共用北京百炼密钥。选择自动保存，停止监听后可切换。'):'Qwen 支持中英文实时转写，共用百炼密钥。选择自动保存，停止监听后可切换。';
+  for(const key of ['language','source','hotwords','questionMode','asrProvider'])$(key).disabled=state.running||state.status==='stopping';
+  const doubao=state.config.asrProvider==='doubao',paraformer=state.config.asrModel==='paraformer-realtime-v2',cloudSource=state.config.source?.startsWith('aliyun-');
+  const asrBusy=state.running||state.status==='stopping'||state.asr?.state==='testing';
+  const cloudName=doubao?'豆包':'阿里云';
+  for(const option of $('source').options){if(option.value==='aliyun-all')option.textContent=`系统声音→${cloudName}实时转写（推荐）`;if(option.value==='aliyun-tencent')option.textContent=`仅腾讯声音→${cloudName}实时转写`;if(option.value==='aliyun-other')option.textContent=`除腾讯外其他系统声音→${cloudName}实时转写`;}
+  $('asrModelField').hidden=doubao;$('asrModel').disabled=!cloudSource||doubao||asrBusy;
+  $('asrRegionField').hidden=doubao;$('doubaoResourceField').hidden=!doubao;
+  $('asrProviderTitle').textContent=doubao?'② 火山引擎豆包 · Streaming ASR 2.0':'① 阿里云百炼 · 实时转写 / Qwen-MT 翻译';
+  $('asrKeyLabel').textContent=doubao?'豆包 API Key':'百炼 API 密钥';
+  $('asrKey').placeholder=doubao?'火山引擎 API Key（只保存在本机）':'sk-…（密钥不要发到聊天里）';
+  $('asrConsoleLink').href=doubao?'https://console.volcengine.com/':'https://bailian.console.aliyun.com/';
+  $('asrConsoleLink').textContent=doubao?'打开火山引擎控制台':'打开阿里云百炼控制台';
+  $('asrModelHint').textContent=!cloudSource?'选择云端输入来源后，可切换实时转写服务。':doubao?'豆包使用双向流式二遍识别，支持中英文混说和说话人 ID；Resource ID 默认小时版。':'阿里云支持 Qwen 和 Paraformer 实时转写，共用百炼密钥。选择后自动保存，停止监听后可切换。';
   $('hotwords').disabled=$('hotwords').disabled||(cloudSource&&paraformer);
   $('hotwordsHint').textContent=cloudSource&&paraformer?'此处术语输入仅用于 Qwen；已填写的术语会保留，切回 Qwen 后继续使用。':'开始前填入难认的人名或术语，可改善专有名词识别。';
-  if(!asrSetupInitialized&&state.asr?.configured){$('asrRegion').value=state.asr.region;asrSetupInitialized=true;}
+  if(!asrSetupInitialized&&state.asr?.configured){$('asrRegion').value=state.asr.region||'beijing';if(state.asr.resourceId)$('doubaoResourceId').value=state.asr.resourceId;asrSetupInitialized=true;}
   $('asrStatus').hidden=!['error'].includes(state.asr?.state);$('asrStatus').textContent=state.asr?.message||'';
   $('asrKeyStatus').textContent=state.asr?.message||'';
-  for(const key of ['saveAsr','testAsr','asrRegion','asrKey'])$(key).disabled=state.running||state.status==='stopping'||state.asr?.state==='testing';
+  for(const key of ['saveAsr','testAsr','asrRegion','asrKey','doubaoResourceId'])$(key).disabled=asrBusy;
   const font=document.activeElement===$('fontSize')&&$('fontSize').validity.valid?Number($('fontSize').value):(pendingFont??state.config.fontSize);
   document.documentElement.style.setProperty('--font',font+'px');
   $('semanticStatus').hidden=state.config.questionMode!=='semantic';$('semanticStatus').textContent=state.semantic?.message||'';
@@ -266,7 +275,7 @@ for(const [id,type] of [['start','start'],['stop','stop'],['wide','open_panel']]
 $('refresh').onclick=()=>refreshTabs().catch(e=>toast(e.message));
 $('reconnect').onclick=()=>api({type:'check_composer'}).then(result=>toast(result.message)).catch(e=>toast(e.message));
 $('bind').onclick=()=>{if(!$('tabs').value){toast('请先打开支持的对话网页');return;}api({type:'bind',tabId:Number($('tabs').value),roomTabId:Number($('relayRooms').value)}).catch(e=>toast(e.message));};
-for(const key of ['autoFill','autoSend','confirmSelection','translationEnabled','language','source','questionMode','translationProvider','hotwords','asrModel'])$(key).onchange=()=>{if(key==='confirmSelection')cancelAuto();api({type:'config',value:{[key]:['autoFill','autoSend','confirmSelection','translationEnabled'].includes(key)?$(key).checked:$(key).value}}).catch(e=>toast(e.message));};
+for(const key of ['autoFill','autoSend','confirmSelection','translationEnabled','language','source','questionMode','translationProvider','hotwords','asrProvider','asrModel'])$(key).onchange=()=>{if(key==='confirmSelection')cancelAuto();api({type:'config',value:{[key]:['autoFill','autoSend','confirmSelection','translationEnabled'].includes(key)?$(key).checked:$(key).value}}).catch(e=>toast(e.message));};
 function setFont(value){
   const size=Math.max(10,Math.min(32,Math.round(value)));if(!Number.isFinite(size))return;
   pendingFont=size;$('fontSize').value=String(size);document.documentElement.style.setProperty('--font',size+'px');clearTimeout(fontTimer);
@@ -305,8 +314,8 @@ chrome.runtime.onMessage.addListener(msg=>{
 });
 $('saveKey').onclick=async()=>{try{await api({type:'configure_api',provider:'deepseek',key:$('apiKey').value});$('apiKey').value='';toast('已提交本机保存');}catch(e){toast(e.message)}};
 $('testApi').onclick=()=>api({type:'test_api',provider:'deepseek'}).catch(e=>toast(e.message));$('retryApi').onclick=()=>api({type:'retry_api'});
-$('saveAsr').onclick=async()=>{try{await api({type:'configure_asr',key:$('asrKey').value,region:$('asrRegion').value});$('asrKey').value='';toast('已提交本机保存');}catch(e){toast(e.message);}};
-$('testAsr').onclick=()=>api({type:'test_asr'}).catch(e=>toast(e.message));
+$('saveAsr').onclick=async()=>{try{await api({type:'configure_asr',provider:$('asrProvider').value,key:$('asrKey').value,region:$('asrRegion').value,resourceId:$('doubaoResourceId').value});$('asrKey').value='';toast('已提交本机保存');}catch(e){toast(e.message);}};
+$('testAsr').onclick=()=>api({type:'test_asr',provider:$('asrProvider').value}).catch(e=>toast(e.message));
 $('retryTranslation').onclick=()=>api({type:'translation_retry'}).catch(e=>toast(e.message));
 try {
   $('statusMessage').textContent='正在读取窗口和已保存历史…';

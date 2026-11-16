@@ -2,6 +2,13 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.9.4
+
+- 新增独立 Doubao Streaming ASR 2.0 Provider；原有阿里云 Qwen / Paraformer Provider 保持不变，可在设置中切换。
+- Doubao 单元测试覆盖 API Key 本地权限、环境变量读取、二进制首帧/音频/结束帧、gzip 响应、interim→final 覆盖、speaker 映射、错误脱敏和连接收尾。
+- 豆包实现使用 `bigmodel_async`、`X-Api-Key`、`X-Api-Resource-Id`、每会话 UUID；PCM 以 16kHz/16-bit/mono、200ms（6400 字节）缓冲发送。
+- 未配置火山 API Key，因此本次没有伪造真实云端成功；真实接口测试需要在本机设置中保存 Key 并点击「测试转写连接」。受限沙箱无法绑定本地 WebSocket 端口，原有本地 WS 测试因此出现 EPERM，与 Provider 单元测试无关。
+
 ## Version 0.9.3
 
 - All 114 Node tests pass. New cases cover either binding button connecting both selected endpoints, enabling automatic mode after navigation, and refreshing the room document token without a second reconnect.

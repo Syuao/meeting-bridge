@@ -8,7 +8,7 @@ Live system-audio transcription and Chinese translation on macOS. Select transcr
 
 ## 能做什么
 
-- 系统输出音频 → 阿里云实时转写，可选 Qwen 或 Paraformer，中英文混合识别；支持只采集腾讯会议的输出。
+- 系统输出音频 → 可选阿里云 Qwen/Paraformer 或火山引擎豆包 Streaming ASR 2.0，中英文混合识别；豆包支持双向流式二遍识别和说话人 ID。
 - Qwen-MT Flash 流式中文翻译，DeepSeek 可选；临时故障自动退避重试。
 - 在连续原文中划选，松手即复制并追加到目标草稿；默认不弹框、不自动发送。
 - ChatGPT、DeepSeek、千问和国际版 Qwen 网页对话绑定，保留现有草稿。
@@ -38,7 +38,7 @@ flowchart LR
 - macOS 13 或更新版本；开发与本机验证使用 Apple Silicon / macOS 15，Intel Mac 尚未实测。
 - Google Chrome。以下源码安装另需 Node.js 22+、npm、Python 3、Git。
 - Xcode Command Line Tools：终端运行 `xcode-select --install`，按系统提示安装。
-- 阿里云百炼 API 密钥。语音与翻译独立按用量计费，网页聊天账户不会自动提供 API 额度。
+- 阿里云百炼 API 密钥或火山引擎豆包 API Key（二选一即可）。语音与翻译独立按用量计费，网页聊天账户不会自动提供 API 额度。
 
 ### 从源码安装
 
@@ -58,7 +58,7 @@ python3 install.py
 4. 保存百炼 API Key，地域选择与密钥一致。来源选「系统声音→阿里云实时转写」，问题提取选「手动选句」。
 5. 开启「中文翻译」并选择 Qwen-MT，点击「开始监听」。首次使用按 macOS 提示允许系统录音。
 
-在「对话与采集设置 → 云端转写模型」选择 Qwen 实时版或 Paraformer 实时版，选择会自动保存，停止监听后可切换。旧配置继续使用 Qwen。Paraformer 共用北京地域的百炼密钥，不支持新加坡地域；「测试转写连接」会测试当前选择的模型。模型选择只影响语音转写，中文翻译服务独立设置。
+在「对话与采集设置 → 实时转写服务」选择阿里云或火山引擎豆包。阿里云下可再选择 Qwen 实时版或 Paraformer 实时版；旧配置继续使用 Qwen。豆包使用 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`，默认 Resource ID 为 `volc.seedasr.sauc.duration`，也可使用并发资源 `volc.seedasr.sauc.concurrent`。豆包 API Key 和 Resource ID 只保存到本机 Host，不进入浏览器页面或仓库。豆包固定 16kHz、16-bit、单声道 PCM，按 200ms 分包，支持中英文混说、实时中间结果、二遍最终结果和稳定的会话内 speaker ID。选择会自动保存，停止监听后可切换；「测试转写连接」只测试当前服务。模型选择只影响语音转写，中文翻译服务独立设置。
 
 当前「专业术语」输入仅适用于 Qwen；Paraformer 需要单独创建云端热词表，本版尚未接入该功能，切换时会禁用输入并保留已有术语。
 

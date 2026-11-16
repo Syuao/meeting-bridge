@@ -104,6 +104,11 @@ test('ASR model selection persists and reaches connection tests and capture with
   assert.equal((await reopened.call({type:'get_state'})).config.asrModel,paraformer);
   await reopened.call({type:'config',value:{asrModel:qwen}});await reopened.call({type:'test_asr'});
   assert.equal(reopened.outgoing.at(-1).model,qwen);
+  await reopened.call({type:'config',value:{asrProvider:'doubao'}});
+  assert.equal((await reopened.call({type:'get_state'})).config.asrProvider,'doubao');
+  await reopened.call({type:'test_asr'});assert.equal(reopened.outgoing.at(-1).provider,'doubao');
+  await reopened.call({type:'start'});assert.equal(reopened.outgoing.at(-1).asrProvider,'doubao');
+  await reopened.call({type:'stop'});reopened.emit({type:'status',state:'stopped'});
   const invalid=load({config:{asrModel:'obsolete'}});assert.equal((await invalid.call({type:'get_state'})).config.asrModel,qwen);
 });
 
