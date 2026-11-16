@@ -19,6 +19,7 @@ const urlPattern=/^wss:\/\/openspeech\.bytedance\.com\/api\/v3\/sauc\/bigmodel_a
 export function validateDoubaoConfig(input={}) {
   const key=String(input.key||'').trim();
   if(!key||key.length>512||/[\r\n]/.test(key))throw new Error('请输入火山引擎豆包 API Key。');
+  if(/^ark-/i.test(key))throw new Error('当前填写的是火山方舟大模型 API Key（ark-…），不是豆包语音 API Key；请到豆包语音控制台的“API 管理”创建语音 API Key。');
   const resourceId=String(input.resourceId||DOUBAO_RESOURCE_ID).trim();
   if(!resourcePattern.test(resourceId))throw new Error('豆包 Resource ID 无效，请使用 volc.seedasr.sauc.duration 或 concurrent。');
   const websocketUrl=String(input.websocketUrl||DOUBAO_WS_URL).trim();

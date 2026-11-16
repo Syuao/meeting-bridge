@@ -39,6 +39,7 @@ test('Doubao config stays local, defaults to ASR 2.0 duration resource, and hide
     assert.equal(JSON.stringify(doubaoPublicConfig(root)).includes(key),false);
     assert.deepEqual(readDoubaoConfig(root+'-env',{DOUBAO_API_KEY:key,DOUBAO_UID:'env-user'}),{key,resourceId:DOUBAO_RESOURCE_ID,websocketUrl:DOUBAO_WS_URL,uid:'env-user'});
     assert.throws(()=>validateDoubaoConfig({key:'x\ny'}),/API Key/);
+    assert.throws(()=>validateDoubaoConfig({key:'ark-example-key'}),/方舟大模型.*语音 API Key/);
     assert.throws(()=>validateDoubaoConfig({key,resourceId:'volc.invalid'}),/Resource ID/);
     assert.throws(()=>validateDoubaoConfig({key,websocketUrl:'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream'}),/bigmodel_async/);
   } finally {fs.rmSync(root,{recursive:true,force:true});}
