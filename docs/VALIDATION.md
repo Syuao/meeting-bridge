@@ -2,6 +2,13 @@
 
 The app is under active development. Website editor changes and service availability can affect results.
 
+## Version 0.9.5
+
+- 兼容豆包 `additions` 为对象、JSON 字符串及不同 speaker 字段的返回变体，保留原始 `speaker_id` 并稳定映射到当前会话。
+- 豆包未返回 `speaker_id` 时，状态栏会明确提示，而不是按讲话顺序伪造说话人。
+- `Speaker 0` / `Speaker 1` 标签改为高对比度徽章，便于在实时文字中查看。
+- 本次仍未配置真实火山 API Key；协议、结果解析和回归测试使用 Mock 响应验证。
+
 ## Version 0.9.4
 
 - 新增独立 Doubao Streaming ASR 2.0 Provider；原有阿里云 Qwen / Paraformer Provider 保持不变，可在设置中切换。

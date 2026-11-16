@@ -119,6 +119,46 @@ function utteranceKey(utterance,index) {
   return `index-${index}`;
 }
 
+function parseNested(value) {
+  if(typeof value!=='string')return value;
+  const text=value.trim();
+  if(!text||!['{','['].includes(text[0]))return value;
+  try{return JSON.parse(text);}catch{return value;}
+}
+
+/** Extract the provider's speaker id across object/string additions variants. */
+export function extractDoubaoSpeakerId(utterance={}) {
+  const additions=parseNested(utterance.additions);
+  const candidates=[additions?.speaker_id,additions?.speakerId,additions?.speaker,utterance.speaker_id,utterance.speakerId,utterance.speaker,utterance.speaker_info?.speaker_id,utterance.speaker_info?.speakerId];
+  for(let value of candidates){
+    value=parseNested(value);
+    if(value&&typeof value==='object')value=value.id??value.speaker_id??value.speakerId??value.name;
+    if(value!=null&&String(value).trim()!=='')return String(value).trim();
+  }
+  return '';
+}
+
+function responsePayload(payload) {
+  let value=parseNested(payload);
+  if(value?.payload_msg!=null)value=parseNested(value.payload_msg);
+  return value&&typeof value==='object'?value:{};
+}
+
+function responseUtterances(payload) {
+  const body=responsePayload(payload),result=parseNested(body.result),lists=[body.utterances,result?.utterances];
+  if(Array.isArray(result))lists.push(...result.map(item=>parseNested(item)?.utterances));
+  for(const list of lists)if(Array.isArray(list))return list;
+  if(Array.isArray(result))return result.filter(item=>item&&typeof item==='object'&&typeof item.text==='string');
+  return [];
+}
+
+function responseResult(payload) {
+  const body=responsePayload(payload),result=parseNested(body.result);
+  if(result&&typeof result==='object'&&!Array.isArray(result))return result;
+  if(Array.isArray(result))return result.find(item=>item&&typeof item==='object'&&typeof item.text==='string')||{};
+  return body;
+}
+
 export class DoubaoTranscript {
   constructor(sessionID=randomUUID()){this.sessionID=sessionID;this.rows=new Map();this.speakers=new Map();}
   speaker(raw) {
@@ -129,9 +169,8 @@ export class DoubaoTranscript {
   }
   accept(utterance,index=0,at=Date.now(),isLast=false) {
     if(!utterance||typeof utterance.text!=='string'||!utterance.text.trim())return null;
-    const key=utteranceKey(utterance,index),id=`doubao-${this.sessionID}-${key}`,old=this.rows.get(id),text=utterance.text.trim(),final=utterance.definite===true||isLast;
-    if(old?.final||(old?.text===text&&old.final===final&&old.speakerRaw===String(utterance.additions?.speaker_id??utterance.additions?.speaker??utterance.speaker_id??'')))return null;
-    const raw=utterance.additions?.speaker_id??utterance.additions?.speaker??utterance.speaker_id??'';
+    const key=utteranceKey(utterance,index),id=`doubao-${this.sessionID}-${key}`,old=this.rows.get(id),text=utterance.text.trim(),final=utterance.definite===true||isLast,raw=extractDoubaoSpeakerId(utterance);
+    if(old?.final||(old?.text===text&&old.final===final&&old.speakerRaw===raw))return null;
     const row={id,piece:id,text,final,source:'doubao',model:DOUBAO_ASR_MODEL,at:old?.at||at,beginTime:utterance.start_time??utterance.begin_time,endTime:utterance.end_time,speakerId:this.speaker(raw),speakerRaw:String(raw||'')};
     this.rows.set(id,row);while(this.rows.size>12)this.rows.delete(this.rows.keys().next().value);return row;
   }
@@ -166,7 +205,7 @@ export class DoubaoASR {
     const providerCode=msg.code||((payloadCode&&payloadCode!==20000000)?payloadCode:0);
     if(providerCode&&providerCode!==1013){this.fail(safeDoubaoError(providerCode));return;}
     if(this.phase==='connecting'){clearTimeout(this.startTimer);this.phase='streaming';for(const frame of this.queue)this.sendFrame(frame);this.queue=[];this.queuedBytes=0;this.startResolve?.();}
-    const list=msg.payloadMsg?.result?.utterances||msg.payloadMsg?.payload_msg?.result?.utterances||[];const fallback=msg.payloadMsg?.result;
+    const list=responseUtterances(msg.payloadMsg),fallback=responseResult(msg.payloadMsg);
     if(Array.isArray(list))list.forEach((utterance,index)=>this.onSentence({...utterance,definite:utterance.definite===true||msg.last},index));
     else if(fallback?.text)this.onSentence({...fallback,definite:fallback.definite===true||msg.last},0);
     if(msg.last&&this.phase==='finishing'){clearTimeout(this.finishTimer);this.phase='closed';this.finishResolve?.();this.ws?.close();}

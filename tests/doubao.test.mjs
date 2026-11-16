@@ -9,7 +9,7 @@ import {
   DOUBAO_ASR_MODEL,DOUBAO_WS_URL,DOUBAO_RESOURCE_ID,DOUBAO_CHUNK_BYTES,
   validateDoubaoConfig,readDoubaoConfig,saveDoubaoConfig,doubaoPublicConfig,
   buildDoubaoStartFrame,buildDoubaoAudioFrame,buildDoubaoFinishFrame,parseDoubaoFrame,
-  DoubaoTranscript,DoubaoASR,safeDoubaoError,
+  DoubaoTranscript,DoubaoASR,safeDoubaoError,extractDoubaoSpeakerId,
 } from '../host/doubao-asr.mjs';
 
 const key='doubao-test-key';
@@ -72,6 +72,9 @@ test('Doubao response parser and transcript preserve interim revisions, finals, 
   assert.equal(tracker.accept({text:'late partial',start_time:100,definite:false,additions:{speaker_id:'0'}},0),null);
   const unknown=tracker.accept({text:'I think 这个方案可以优化。',start_time:200,definite:true,additions:{}},0,3);assert.equal(unknown.speakerId,'Unknown');assert.equal(unknown.speakerRaw,'');
   assert.equal(tracker.accept({text:'I think 这个方案可以优化。',start_time:200,definite:true,additions:{}},0),null);
+  const numeric=tracker.accept({text:'Speaker zero',start_time:300,definite:true,additions:{speaker_id:0}},0,4);assert.equal(numeric.speakerRaw,'0');assert.equal(numeric.speakerId,'speaker-0');
+  const stringified=tracker.accept({text:'Speaker one',start_time:400,definite:true,additions:'{"speaker_id":"1"}'},0,5);assert.equal(stringified.speakerRaw,'1');assert.equal(stringified.speakerId,'speaker-1');
+  assert.equal(extractDoubaoSpeakerId({text:'nested',speaker_info:{speaker_id:'2'}}),'2');
   assert.throws(()=>parseDoubaoFrame(Buffer.from([0x11,0x90,0x11])),/不完整/);
 });
 

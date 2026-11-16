@@ -21,6 +21,7 @@ let apiTest=null;
 let cloud=null,cloudTranscript=null,heartbeat=null,stopTimer=null,stopping=false,finishing=false,lastPCM=0,asrTesting=false;
 let selectedASRModel=ASR_MODEL;
 let selectedASRProvider='aliyun';
+let doubaoSpeakerState='unknown',doubaoLastSpeaker='';
 let language = 'auto', started = false, idCounter = 0, speechEndedAt = 0;
 const info = (state, message) => send({type:'status', state, message});
 const metricsPath = path.join(root,'latency.jsonl');
@@ -30,7 +31,7 @@ function metric(value) {
 }
 function question(text,extra={}) { send({type:'question',id:`q-${Date.now()}-${++idCounter}`,text,at:Date.now(),...extra}); }
 function semanticState(state,message,usage) {send({type:'semantic',state,message,provider:PROVIDER.name,model:PROVIDER.model,configured:hasKey(root)});if(usage)metric({stage:'api',provider:PROVIDER.name,inputTokens:usage.input_tokens,outputTokens:usage.output_tokens});}
-function asrState(state,message){send({type:'asr_status',state,message,provider:selectedASRProvider,...(selectedASRProvider==='doubao'?doubaoPublicConfig(root):asrPublicConfig(root,selectedASRModel))});}
+function asrState(state,message){send({type:'asr_status',state,message,provider:selectedASRProvider,...(selectedASRProvider==='doubao'?{...doubaoPublicConfig(root),speakerState:doubaoSpeakerState}:asrPublicConfig(root,selectedASRModel))});}
 function asrName(){return selectedASRProvider==='doubao'?'豆包 Streaming ASR 2.0':asrModel(selectedASRModel).name;}
 const translator=new Translator(root,row=>send({type:'translation',...row}),(state,message,{usage,...extra})=>{
   send({type:'translation_status',state,message,...extra});
@@ -89,6 +90,7 @@ async function start(options) {
   const source=['tencent','tencent-text','aliyun-all','aliyun-tencent','aliyun-other'].includes(options.source)?options.source:'all';
   const useCloud=source.startsWith('aliyun-');
   selectedASRProvider=options.asrProvider==='doubao'?'doubao':'aliyun';
+  doubaoSpeakerState='unknown';doubaoLastSpeaker='';
   let cloudConfig;if(useCloud){try{if(selectedASRProvider==='doubao'){cloudConfig=readDoubaoConfig(root);selectedASRModel=DOUBAO_ASR_MODEL;}else{cloudConfig=readASRConfig(root);selectedASRModel=asrModel(options.asrModel,cloudConfig.region).id;}}catch(e){asrState('error',e.message);info('error',e.message);return;}}
   mode=['semantic','rules'].includes(options.questionMode)?options.questionMode:'manual';
   language = ['en','zh','auto'].includes(options.language) ? options.language : 'auto';
@@ -106,6 +108,17 @@ async function start(options) {
       if(mine!==generation)return;
       const row=selectedASRProvider==='doubao'?cloudTranscript.accept(sentence,index):cloudTranscript.accept(sentence);if(!row)return;
       send({type:'transcript',...row});
+      if(selectedASRProvider==='doubao'){
+        if(row.speakerId&&row.speakerId!=='Unknown'){
+          const speaker=String(row.speakerRaw||row.speakerId),changed=doubaoSpeakerState!=='seen'||doubaoLastSpeaker!==speaker;
+          doubaoSpeakerState='seen';
+          doubaoLastSpeaker=speaker;
+          if(changed)asrState('ready',`${asrName()}已连接 · 已识别 Speaker ${speaker}`);
+        }else if(doubaoSpeakerState==='unknown'){
+          doubaoSpeakerState='missing';
+          asrState('ready',`${asrName()}已连接，但当前结果未返回 speaker_id；请确认已开通 2.0 说话人分离能力`);
+        }
+      }
       if(!row.final)send({type:'partial',text:row.text,piece:row.id});
       if(!stopping){
         if(mode==='semantic')semantic?.feed(cloudTranscript.recent(),[row]);
@@ -238,4 +251,4 @@ process.stdin.on('data',data=> {
 process.stdin.on('end',()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
 process.stdout.on('error',()=>process.exit(0));
 for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
-send({type:'hello',version:'0.9.4',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});
+send({type:'hello',version:'0.9.5',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});
