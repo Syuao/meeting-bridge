@@ -17,7 +17,8 @@ export const PCM_BYTES_PER_SAMPLE=2;
 export const CHUNK_MS=200;
 export const CHUNK_BYTES=PCM_RATE*CHUNK_MS/1000*PCM_CHANNELS*PCM_BYTES_PER_SAMPLE;
 const runtimeRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const defaultFfmpeg=process.platform==='win32'?path.join(runtimeRoot,'ffmpeg.exe'):'ffmpeg';
+const bundledFfmpeg=path.join(runtimeRoot,'ffmpeg.exe');
+const defaultFfmpeg=process.platform==='win32'&&fs.existsSync(bundledFfmpeg)?bundledFfmpeg:'ffmpeg';
 
 export function parseArgs(argv=[]) {
   const out={};
