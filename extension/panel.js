@@ -246,7 +246,8 @@ function render(next){
     if(option.value==='aliyun-all')option.textContent=windows?`Windows 系统混音→${cloudName}实时转写（推荐）`:`系统声音→${cloudName}实时转写（推荐）`;
     if(option.value==='aliyun-tencent')option.textContent=windows?'仅腾讯声音（Windows 暂不支持应用分流）':`仅腾讯声音→${cloudName}实时转写`;
     if(option.value==='aliyun-other')option.textContent=windows?'其他系统声音（Windows 暂不支持应用分流）':`除腾讯外其他系统声音→${cloudName}实时转写`;
-    option.disabled=windows&&['aliyun-tencent','aliyun-other','tencent','all'].includes(option.value);
+    if(option.value==='tencent-text'&&windows)option.textContent='腾讯实时转写文字（Windows 暂不支持）';
+    option.disabled=windows&&['aliyun-tencent','aliyun-other','tencent-text','tencent','all'].includes(option.value);
   }
   $('asrModelField').hidden=doubao;$('asrModel').disabled=!cloudSource||doubao||asrBusy;
   $('asrRegionField').hidden=doubao;$('doubaoResourceField').hidden=!doubao;
