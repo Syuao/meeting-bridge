@@ -39,6 +39,14 @@ const translator=new Translator(root,row=>send({type:'translation',...row}),(sta
   if(extra.errorCode)metric({stage:'translation_error',provider:extra.provider,code:extra.errorCode,httpStatus:extra.httpStatus,attempt:extra.attempt,backoffMs:extra.backoffMs});
 });
 function launchCapture(sessionDir,source,mine,streamPCM=false) {
+  if(process.platform==='win32'){
+    const helper=path.join(root,'host','windows-capture.mjs');
+    const launch=spawn(process.execPath,[helper,'--session',sessionDir,'--source',source,'--parent',String(process.pid),'--stream-pcm',streamPCM?'1':'0'],{stdio:['ignore','ignore','pipe']});
+    launch.on('error',e=>{if(mine===generation)stop('Windows 系统声音采集程序无法启动：'+e.message)});
+    launch.on('exit',code=>{if(code&&mine===generation)stop('Windows 系统声音采集程序已退出。')});
+    info('permission','正在打开 Windows 系统声音采集；首次使用请允许音频设备访问。');
+    return;
+  }
   const app=path.join(root,'Meeting Bridge Audio.app');
   const launch=spawn('/usr/bin/open',['-n','-g',app,'--args','--session',sessionDir,'--source',source,'--parent',String(process.pid),'--stream-pcm',streamPCM?'1':'0','--background','1'],{stdio:['ignore','ignore','pipe']});
   launch.on('error',e=>{if(mine===generation)stop(e.message)});
@@ -251,4 +259,4 @@ process.stdin.on('data',data=> {
 process.stdin.on('end',()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
 process.stdout.on('error',()=>process.exit(0));
 for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=> { translator.dispose();stop(); setTimeout(()=>process.exit(0),700); });
-send({type:'hello',version:'0.9.5',model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});
+send({type:'hello',version:'0.10.0',platform:process.platform,model:ASR_MODEL,source:'aliyun-all',questionProvider:PROVIDER.name});

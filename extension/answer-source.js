@@ -1,5 +1,5 @@
 (() => {
-  const VERSION='0.9.5';
+  const VERSION='0.10.0';
   // Rebinding also replaces a receiver left behind by an extension reload.
   try {globalThis.__meetingBridgeAnswers?.cleanup();} catch {/* The previous runtime may already be invalidated. */}
   const Sites=globalThis.MeetingBridgeSites;

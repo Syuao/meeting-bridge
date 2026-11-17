@@ -46,7 +46,7 @@ async function readSession() {
   const stored=saved.meetingSessions?.[sessionId];
   return stored || {config:{...(seed?.config||{})},target:null,history:{transcripts:[],questions:[]}};
 }
-const state={status:'stopped',message:'准备就绪',running:false,level:0,processing:0,partial:null,liveLines:[],transcripts:[],questions:[],target:null,translation:{state:'ready',message:'正在准备中文翻译'},asr:{provider:'aliyun',state:'unconfigured',message:'尚未配置阿里云百炼 API 密钥',configured:false,region:'beijing'},semantic:{state:'unconfigured',message:'尚未配置 API',configured:false},config:{autoFill:false,autoSend:false,language:'auto',asrProvider:'aliyun',asrModel:ASR_MODELS[0],source:'aliyun-all',questionMode:'manual',fontSize:14,confirmSelection:false,translationEnabled:true,translationProvider:'qwen-mt',continuousVersion:1,liveExpanded:true,hotwords:'',streamingVersion:1,manualVersion:1}};
+const state={status:'stopped',message:'准备就绪',platform:'unknown',running:false,level:0,processing:0,partial:null,liveLines:[],transcripts:[],questions:[],target:null,translation:{state:'ready',message:'正在准备中文翻译'},asr:{provider:'aliyun',state:'unconfigured',message:'尚未配置阿里云百炼 API 密钥',configured:false,region:'beijing'},semantic:{state:'unconfigured',message:'尚未配置 API',configured:false},config:{autoFill:false,autoSend:false,language:'auto',asrProvider:'aliyun',asrModel:ASR_MODELS[0],source:'aliyun-all',questionMode:'manual',fontSize:14,confirmSelection:false,translationEnabled:true,translationProvider:'qwen-mt',continuousVersion:1,liveExpanded:true,hotwords:'',streamingVersion:1,manualVersion:1}};
 const initialized=(async()=>{
   const saved=await readSession();
   Object.assign(state.config,saved.config||{}); state.target=saved.target||null;
@@ -76,6 +76,7 @@ function connect() {
   if(port) return port;
   port=chrome.runtime.connectNative('local.meetingbridge');
   port.onMessage.addListener(msg=>{
+    if(msg.type==='hello'){state.platform=msg.platform||'unknown';update();return;}
     if(msg.type==='level'){state.level=msg.value;chrome.runtime.sendMessage({type:'level',sessionId,value:msg.value}).catch(()=>{});return;}
     if(msg.type==='status') {state.status=msg.state;state.message=msg.message;state.running=!['stopped','error','stopping'].includes(msg.state);if(!state.running){state.level=0;state.processing=0;if(msg.state!=='stopping')state.partial=null;}}
     if(msg.type==='error') state.message=msg.message;
@@ -208,7 +209,7 @@ async function command(msg,sender) {
     if(typeof c.translationEnabled==='boolean'||['qwen-mt','deepseek'].includes(c.translationProvider)){if(state.config.translationEnabled)connect();syncTranslation();if(!state.config.translationEnabled)state.translation={state:'off',message:'中文翻译已关闭'};}
     update();void deliver();return {ok:true};
   }
-  if(msg.type==='start') {if(state.running||state.status==='stopping')return {ok:true};state.liveLines=[];state.partial=null;state.startedAt=Date.now();state.status='loading';state.running=true;state.message='正在准备实时转写…';update();connect().postMessage({type:'start',source:state.config.source,language:state.config.language,questionMode:state.config.questionMode,hotwords:state.config.hotwords,asrProvider:state.config.asrProvider,asrModel:state.config.asrModel});return {ok:true};}
+  if(msg.type==='start') {if(state.running||state.status==='stopping')return {ok:true};state.liveLines=[];state.partial=null;state.startedAt=Date.now();state.status='loading';state.running=true;state.message='正在准备实时转写…';update();connect().postMessage({type:'start',source:state.platform==='win32'?'aliyun-all':state.config.source,language:state.config.language,questionMode:state.config.questionMode,hotwords:state.config.hotwords,asrProvider:state.config.asrProvider,asrModel:state.config.asrModel});return {ok:true};}
   if(msg.type==='stop') {state.running=false;port?.postMessage({type:'stop'});state.status=port?'stopping':'stopped';state.message='正在停止并保存末段文字…';state.level=0;update();return {ok:true};}
   if(msg.type==='fill') {await deliver(msg.id);return {ok:true};}
   if(msg.type==='fill_selection') {

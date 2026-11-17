@@ -1,11 +1,12 @@
 {
   "name": "meeting-bridge-local",
-  "version": "0.9.5",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check:repo": "python3 scripts/check_repository.py"
+    "check:repo": "python3 scripts/check_repository.py",
+    "build:windows": "python3 scripts/build_windows_release.py"
   },
   "dependencies": {
     "ws": "8.21.3"

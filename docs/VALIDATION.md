@@ -84,3 +84,8 @@ Local raw test artifacts are intentionally excluded because they can contain env
 The Apple Silicon ZIP was extracted with macOS `ditto` into a disposable directory. Its `Install.command` ran with the bundled official Node.js 22.23.2 runtime, without using system Node or Python. The installed native host answered both hello and ping. A second install preserved the capture executable's inode/signature and a synthetic configuration file. The capture signature verified, and the bundled Node executable had no Homebrew library dependencies. The automated installer test additionally checks rejection of a damaged capture bundle and installation into paths containing spaces and an apostrophe.
 
 The Node upstream archive is pinned by SHA-256. Release files are selected by an explicit allowlist and scanned for common secrets and personal absolute paths. This is not a notarization test or a fresh-machine Gatekeeper approval test. No Apple signing identity is configured; the capture program uses an ad-hoc signature. Only Apple Silicon is distributed as a prebuilt ZIP. Release testing does not change the developer's installed runtime or recording authorization.
+
+## Version 0.10.0
+
+- Windows helper protocol tests pass on the build host (PCM chunking, argument parsing, RMS levels).
+- Windows WASAPI and Edge native-messaging runtime still require a Windows 10/11 x64 smoke test.

@@ -241,8 +241,13 @@ function render(next){
   for(const key of ['language','source','hotwords','questionMode','asrProvider'])$(key).disabled=state.running||state.status==='stopping';
   const doubao=state.config.asrProvider==='doubao',paraformer=state.config.asrModel==='paraformer-realtime-v2',cloudSource=state.config.source?.startsWith('aliyun-');
   const asrBusy=state.running||state.status==='stopping'||state.asr?.state==='testing';
-  const cloudName=doubao?'豆包':'阿里云';
-  for(const option of $('source').options){if(option.value==='aliyun-all')option.textContent=`系统声音→${cloudName}实时转写（推荐）`;if(option.value==='aliyun-tencent')option.textContent=`仅腾讯声音→${cloudName}实时转写`;if(option.value==='aliyun-other')option.textContent=`除腾讯外其他系统声音→${cloudName}实时转写`;}
+  const cloudName=doubao?'豆包':'阿里云',windows=state.platform==='win32';
+  for(const option of $('source').options){
+    if(option.value==='aliyun-all')option.textContent=windows?`Windows 系统混音→${cloudName}实时转写（推荐）`:`系统声音→${cloudName}实时转写（推荐）`;
+    if(option.value==='aliyun-tencent')option.textContent=windows?'仅腾讯声音（Windows 暂不支持应用分流）':`仅腾讯声音→${cloudName}实时转写`;
+    if(option.value==='aliyun-other')option.textContent=windows?'其他系统声音（Windows 暂不支持应用分流）':`除腾讯外其他系统声音→${cloudName}实时转写`;
+    option.disabled=windows&&['aliyun-tencent','aliyun-other','tencent','all'].includes(option.value);
+  }
   $('asrModelField').hidden=doubao;$('asrModel').disabled=!cloudSource||doubao||asrBusy;
   $('asrRegionField').hidden=doubao;$('doubaoResourceField').hidden=!doubao;
   $('asrProviderTitle').textContent=doubao?'② 火山引擎豆包 · Streaming ASR 2.0':'① 阿里云百炼 · 实时转写 / Qwen-MT 翻译';
