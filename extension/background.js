@@ -10,8 +10,20 @@ let windowMapLoaded=false;
 let sessionStorageWrite=Promise.resolve();
 const DEFAULT_SESSION='legacy';
 const newSessionId=()=>{try{if(typeof crypto!=='undefined'&&crypto.randomUUID)return crypto.randomUUID()}catch{}return 'session-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10)};
-async function loadWindowMap(){if(windowMapLoaded)return;windowMapLoaded=true;try{const saved=await chrome.storage.session.get('windowSessions');for(const [id,sid] of Object.entries(saved.windowSessions||{}))windowSessions.set(Number(id),sid)}catch{}}
-async function saveWindowMap(){try{await chrome.storage.session.set({windowSessions:Object.fromEntries(windowSessions)})}catch{}}
+// `storage.session` is available in current Chrome and Edge, but older
+// Chromium builds (and a few enterprise shells) expose only `storage.local`.
+// Keep the transient window map/history usable there instead of failing the
+// service-worker startup while reading a missing namespace.
+async function sessionGet(keys){
+  try{if(typeof chrome.storage?.session?.get==='function')return await chrome.storage.session.get(keys)}catch{}
+  return chrome.storage.local.get(keys);
+}
+async function sessionSet(value){
+  try{if(typeof chrome.storage?.session?.set==='function'){await chrome.storage.session.set(value);return}}catch{}
+  await chrome.storage.local.set(value);
+}
+async function loadWindowMap(){if(windowMapLoaded)return;windowMapLoaded=true;try{const saved=await sessionGet('windowSessions');for(const [id,sid] of Object.entries(saved.windowSessions||{}))windowSessions.set(Number(id),sid)}catch{}}
+async function saveWindowMap(){try{await sessionSet({windowSessions:Object.fromEntries(windowSessions)})}catch{}}
 function writeMeetingSession(sessionId,record){
   const task=sessionStorageWrite.then(async()=>{const saved=await chrome.storage.local.get('meetingSessions');const all=saved.meetingSessions||{};all[sessionId]=record;await chrome.storage.local.set({meetingSessions:all});});
   sessionStorageWrite=task.catch(()=>{});return task;
@@ -30,7 +42,7 @@ async function saveSession(part='all') {
 }
 async function readSession() {
   const saved=await chrome.storage.local.get(['config','target','history','meetingSessions']);
-  if(sessionId==='legacy') return {config:saved.config||{},target:saved.target||null,history:saved.history||(await chrome.storage.session.get('history')).history};
+  if(sessionId==='legacy') return {config:saved.config||{},target:saved.target||null,history:saved.history||(await sessionGet('history')).history};
   const stored=saved.meetingSessions?.[sessionId];
   return stored || {config:{...(seed?.config||{})},target:null,history:{transcripts:[],questions:[]}};
 }
@@ -279,7 +291,17 @@ chrome.runtime.onMessage.addListener((msg,sender,reply)=>{
   if(sender.tab&& !sender.url?.startsWith(chrome.runtime.getURL?.('')||'chrome-extension://') && msg.type!=='composer_ready')return false;
   resolveSession(msg,sender).then(ctx=>msg.type==='session_context'?{sessionId:ctx.sessionId,windowId:ctx.windowId}:ctx.session.command(msg,sender)).then(reply).catch(e=>reply({error:e.message}));return true;
 });
-chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}).catch(()=>{});
+// Side Panel is available in current Chrome/Edge releases, but is absent from
+// older Chromium builds. Guard the API so an unsupported browser can still
+// start the worker, and open the same panel in a standalone window from the
+// toolbar as a compatible fallback.
+const addToolbarPanelFallback=()=>{
+  if(typeof chrome.action?.onClicked?.addListener==='function')
+    chrome.action.onClicked.addListener(()=>{openIndependentWindow().catch(()=>{})});
+};
+if(typeof chrome.sidePanel?.setPanelBehavior==='function'){
+  try{Promise.resolve(chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true})).catch(addToolbarPanelFallback)}catch{addToolbarPanelFallback()}
+}else addToolbarPanelFallback();
 chrome.tabs.onUpdated.addListener(async(id,change,tab)=>{
   for(const session of sessions.values()){
     await session.ready;session.receiverVersions.delete(id);
